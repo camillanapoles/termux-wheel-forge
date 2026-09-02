@@ -69,6 +69,7 @@ echo "== [4/5] sdist fixer (Termux/Android auto-patches)"
 "$PY" /work/scripts/sdist_fixer.py --headers /work/patches/headers "$ROOTD" || true
 
 echo "== [5/5] building wheel"
+cd "$ROOTD"
 if "$PY" -m build --wheel --outdir "$DIST"; then
   RC=0
 else
