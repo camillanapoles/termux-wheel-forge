@@ -9,10 +9,9 @@ mkdir -p dist
 CID="twb-$(date +%s)"
 
 docker run --platform linux/arm64 --name "$CID" \
-  -e PKG -e VER -e PYV \
   -v "$PWD:/work:ro" \
   termux/termux-docker:latest \
-  bash /work/scripts/build-in-termux.sh || BUILD_RC=$?
+  bash /work/scripts/build-in-termux.sh "$PKG" "$VER" "$PYV" || BUILD_RC=$?
 
 docker cp "$CID:/data/data/com.termux/files/home/dist/." dist/ 2>/dev/null \
   || echo "NOTE: no dist output copied from container"

@@ -4,9 +4,9 @@
 # Env: PKG, VER, PYV (optional python minor, e.g. 3.14). Repo mounted read-only at /work.
 set -uo pipefail
 
-: "${PKG:?env PKG required}"
-: "${VER:?env VER required}"
-PYV="${PYV:-}"
+PKG="${1:?usage: build-in-termux.sh <pkg> <ver> [pyv]}"
+VER="${2:?usage: build-in-termux.sh <pkg> <ver> [pyv]}"
+PYV="${3:-}"
 
 DIST="$HOME/dist"
 LOG="$HOME/build.log"
