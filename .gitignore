@@ -1,0 +1,4 @@
+termux-wheel-out/
+dist/
+*.log
+__pycache__/

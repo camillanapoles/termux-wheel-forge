@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+# termux-wheel — build & fetch Termux(Android)-compatible Python wheels.
+#
+#   termux-wheel <package> <version> [python-minor] [options]
+#
+# Triggers the build workflow on termux-wheel-forge (real Termux aarch64 via
+# QEMU on GitHub Actions), waits for it, and downloads the wheel. If a wheel
+# for that package/version was already built (GitHub Release), it is fetched
+# instantly with no rebuild.
+#
+# Requirements: gh (authenticated), python3.
+set -euo pipefail
+
+REPO="${TWB_REPO:-camillanapoles/termux-wheel-forge}"
+WORKFLOW="build-wheel.yml"
+OUTDIR="${TWB_OUTDIR:-$PWD/termux-wheel-out}"
+INSTALL=0 FORCE=0 INSTALL_PYTHON=""
+PYV=""
+
+bold()  { printf '\033[1m%s\033[0m\n' "$*"; }
+die()   { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+
+do_install() {
+  local d="$1"
+  bold "» installing wheel(s) from $d (--no-deps)"
+  if command -v uv >/dev/null; then
+    # shellcheck disable=SC2086
+    uv pip install --no-deps ${INSTALL_PYTHON:+--python "$INSTALL_PYTHON"} "$d"/*.whl
+  else
+    # shellcheck disable=SC2086
+    python3 -m pip install --no-deps --force-reinstall ${INSTALL_PYTHON:+--python "$INSTALL_PYTHON"} "$d"/*.whl
+  fi
+  bold "✓ installed"
+}
+
+usage() {
+  cat <<'EOF'
+termux-wheel — Termux(Android)-compatible Python wheels, built on demand
+
+Usage:
+  termux-wheel <package> <version> [python-minor] [options]
+
+Args:
+  package       PyPI package name            (required)
+  version       package version              (required)
+  python-minor  e.g. 3.14 — default: this machine's python
+
+Options:
+  --install           install the wheel(s) after download (uses --no-deps)
+  --python PATH       with --install: target interpreter/env (passed to
+                      `uv pip install --python` or `pip install`)
+  --repo OWNER/NAME   forge repo (default: $TWB_REPO or camillanapoles/termux-wheel-forge)
+  --force             rebuild even if a release wheel already exists
+  -h | --help         this help
+
+Examples:
+  termux-wheel tree-sitter-rust 0.24.2
+  termux-wheel tree-sitter-python 0.25.0 3.14
+  termux-wheel numpy 2.4.4 --install
+  # install into a uv tool environment (e.g. graphifyy):
+  termux-wheel tree-sitter-lua 0.5.0 --install \
+    --python ~/.local/share/uv/tools/graphifyy/bin/python
+
+Env: TWB_REPO, TWB_OUTDIR
+EOF
+}
+
+# ---------- args ----------
+PKG=""; VER=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --install) INSTALL=1 ;;
+    --force)   FORCE=1 ;;
+    --repo)    REPO="${2:?}"; shift ;;
+    --python)  INSTALL_PYTHON="${2:?}"; shift ;;
+    -*) die "unknown option: $1 (see --help)" ;;
+    *) if [ -z "$PKG" ]; then PKG="$1";
+       elif [ -z "$VER" ]; then VER="$1";
+       elif [ -z "$PYV" ]; then PYV="$1";
+       else die "too many arguments (see --help)"; fi ;;
+  esac
+  shift
+done
+[ -n "$PKG" ] && [ -n "$VER" ] || { usage >&2; die "package and version are required"; }
+
+command -v gh >/dev/null || die "gh CLI not found (pkg install gh)"
+command -v python3 >/dev/null || die "python3 not found"
+PYV="${PYV:-$(python3 -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')}"
+ARTIFACT="wheel-$PKG-$VER-py$PYV"
+DEST="$OUTDIR/$PKG-$VER-py$PYV"
+
+bold "termux-wheel → $PKG==$VER (python $PYV) @ $REPO"
+
+# ---------- fast path: existing release wheels ----------
+if [ "$FORCE" -eq 0 ] && gh release view "wheels/$PKG/$VER" -R "$REPO" >/dev/null 2>&1; then
+  N=$(gh release view "wheels/$PKG/$VER" -R "$REPO" --json assets -q '[.assets[].name | select(endswith(".whl"))] | length' 2>/dev/null || echo 0)
+  if [ "${N:-0}" -gt 0 ]; then
+    bold "» cached: found prebuilt wheel(s) in release wheels/$PKG/$VER (use --force to rebuild)"
+    mkdir -p "$DEST"
+    gh release download "wheels/$PKG/$VER" -R "$REPO" -D "$DEST" -p '*.whl'
+    ls -la "$DEST"
+    [ "$INSTALL" -eq 1 ] && do_install "$DEST"
+    bold "✓ done (no build needed): $DEST"
+    exit 0
+  fi
+fi
+
+# ---------- trigger workflow ----------
+bold "» triggering build workflow…"
+START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+gh workflow run "$WORKFLOW" -R "$REPO" --ref main \
+  -f package="$PKG" -f version="$VER" -f python_version="$PYV" \
+  || die "could not trigger workflow (check: gh auth, repo $REPO)"
+
+RUN_ID=""
+for _ in $(seq 1 24); do
+  RUN_ID="$(gh run list -R "$REPO" --workflow="$WORKFLOW" --event workflow_dispatch \
+             -L 10 --json databaseId,createdAt \
+             -q ".[] | select(.createdAt > \"$START\") | .databaseId" 2>/dev/null | head -1 || true)"
+  [ -n "$RUN_ID" ] && break
+  sleep 5
+done
+[ -n "$RUN_ID" ] || die "could not locate the triggered run"
+RUN_URL="https://github.com/$REPO/actions/runs/$RUN_ID"
+bold "» run #$RUN_ID — $RUN_URL"
+
+# ---------- wait ----------
+T0=$SECONDS
+while :; do
+  STATUS="$(gh run view "$RUN_ID" -R "$REPO" --json status,conclusion \
+            -q '.status + "/" + (.conclusion // "running")' 2>/dev/null || echo unknown/unknown)"
+  case "$STATUS" in
+    completed/*) break ;;
+  esac
+  printf '\r  … %ss elapsed (%s)' "$((SECONDS - T0))" "${STATUS%%/*}"
+  sleep 15
+done
+echo
+CONCLUSION="${STATUS#completed/}"
+if [ "$CONCLUSION" != "success" ]; then
+  die "build $CONCLUSION — inspect logs: $RUN_URL (or: gh run view $RUN_ID -R $REPO --log-failed)"
+fi
+
+# ---------- download artifact ----------
+mkdir -p "$DEST"
+gh run download "$RUN_ID" -R "$REPO" -n "$ARTIFACT" -D "$DEST" || \
+  die "could not download artifact $ARTIFACT (available names may differ if python_version was empty)"
+bold "» downloaded to $DEST"
+ls -la "$DEST"
+
+[ "$INSTALL" -eq 1 ] && do_install "$DEST"
+bold "✓ wheel(s) ready: $DEST"
+echo "  install manually with:  uv pip install --no-deps $DEST/*.whl"
+echo "  (or:                    python -m pip install --no-deps $DEST/*.whl)"

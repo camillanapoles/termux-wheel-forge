@@ -1,0 +1,70 @@
+name: build-wheel
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "PyPI package name (e.g. tree-sitter-json)"
+        required: true
+        type: string
+      version:
+        description: "Package version (e.g. 0.24.8)"
+        required: true
+        type: string
+      python_version:
+        description: "Termux Python minor (e.g. 3.14). Empty = distro default"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ inputs.package }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      PKG: ${{ inputs.package }}
+      VER: ${{ inputs.version }}
+      PYV: ${{ inputs.python_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU (arm64)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Build wheel inside real Termux (aarch64)
+        run: bash .github/scripts/docker-build.sh "$PKG" "$VER" "$PYV"
+
+      - name: Publish wheels to GitHub Release (fast path for future installs)
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          if [ ${#wheels[@]} -gt 0 ]; then
+            tag="wheels/$PKG/$VER"
+            if ! gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release create "$tag" -R "$GITHUB_REPOSITORY" \
+                --title "$PKG $VER — Termux (Android) wheels" \
+                --notes "Auto-built in real Termux aarch64 (QEMU) by termux-wheel-forge. Python: ${PYV:-default}."
+            fi
+            gh release upload "$tag" -R "$GITHUB_REPOSITORY" dist/*.whl --clobber
+            echo "release: ${{ github.server_url }}/${GITHUB_REPOSITORY}/releases/tag/$tag"
+          fi
+
+      - name: Upload artifact (wheel + build log)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ inputs.package }}-${{ inputs.version }}-py${{ inputs.python_version || 'default' }}
+          path: dist/*
+          if-no-files-found: warn
