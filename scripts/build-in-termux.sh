@@ -59,7 +59,7 @@ if [ -z "$SDIST" ]; then
   exit 3
 fi
 tar xf "$SDIST"
-ROOTD="$(ls -dt -- */ | head -1)"; ROOTD="${ROOTD%/}"
+ROOTD="$(tar tzf "$SDIST" | head -1 | sed 's|/.*||')"
 echo "== sdist root: $ROOTD"
 
 echo "== [3/5] known-issues advisories"
