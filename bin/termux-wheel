@@ -98,7 +98,7 @@ if [ "$FORCE" -eq 0 ] && gh release view "wheels/$PKG/$VER" -R "$REPO" >/dev/nul
   if [ "${N:-0}" -gt 0 ]; then
     bold "» cached: found prebuilt wheel(s) in release wheels/$PKG/$VER (use --force to rebuild)"
     mkdir -p "$DEST"
-    gh release download "wheels/$PKG/$VER" -R "$REPO" -D "$DEST" -p '*.whl'
+    gh release download "wheels/$PKG/$VER" -R "$REPO" -D "$DEST" -p '*.whl' --clobber
     ls -la "$DEST"
     [ "$INSTALL" -eq 1 ] && do_install "$DEST"
     bold "✓ done (no build needed): $DEST"
