@@ -83,6 +83,21 @@ echo 'numpy==2.4.4' > constraints.txt
 uv tool install graphifyy --find-links <forged-wheels-dir> --constraints constraints.txt
 ```
 
+## Failure 5 — maturin can't determine Android API level ([gemini] extra)
+
+Installing the extras (`uv tool install graphifyy[gemini]`) pulls `openai` →
+`jiter` + `tiktoken` (Rust, maturin backend). On-device builds die with:
+
+```
+💥 maturin failed
+  Caused by: Failed to determine Android API level. Please set the
+ANDROID_API_LEVEL environment variable.
+```
+
+**Fix:** `export ANDROID_API_LEVEL=24` (matches the `android_24_arm64_v8a`
+wheel tag) before `uv tool install`. The same env var is needed for any
+maturin-backed sdist (pydantic-core tolerates its absence; jiter does not).
+
 ## Final working recipe (all fixes combined)
 
 ```bash
@@ -102,6 +117,12 @@ cp patches/headers/abi14/*.h "$PREFIX/include/python3.14/tree_sitter/"
 
 uv tool install graphifyy \
   --find-links ./termux-wheel-out \
+  --constraints <(echo 'numpy==2.4.4')
+
+# with the [gemini] extra (adds openai/tiktoken/jiter): same recipe plus
+export ANDROID_API_LEVEL=24   # maturin (jiter) requirement on Termux
+uv tool install graphifyy[gemini] \
+  --find-links ./termux-wheel-out/_flat \
   --constraints <(echo 'numpy==2.4.4')
 
 # if the tool was already installed, re-inject the scanner-fixed wheels:
