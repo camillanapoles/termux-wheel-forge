@@ -105,7 +105,10 @@ That directory is on every setuptools extension build line on Termux, so
 
 ## Case study: installing `graphifyy` (25 tree-sitter grammars) on Termux
 
-See [`docs/GRAPHIFYY_CASE.md`](docs/GRAPHIFYY_CASE.md). Short version:
+See [`docs/GRAPHIFYY_CASE.md`](docs/GRAPHIFYY_CASE.md) for the
+technical record, or the **user-facing install+usage guide (pt-BR)**:
+[`docs/GRAPHIFY-TERMUX-README.md`](docs/GRAPHIFY-TERMUX-README.md).
+Short version:
 
 ```bash
 uv tool install graphifyy \
