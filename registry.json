@@ -10,9 +10,9 @@
       "wheel": "tree_sitter_json-0.24.8-cp39-abi3-android_24_arm64_v8a.whl",
       "layout_path": "py3.14/tree-sitter-json/0.24.8/",
       "download_url": "https://github.com/camillanapoles/termux-wheel-forge/releases/download/wheel/py3.14/tree-sitter-json/0.24.8/tree_sitter_json-0.24.8-cp39-abi3-android_24_arm64_v8a.whl",
-      "built_at": "2026-09-19T18:05:32Z",
+      "built_at": "2026-09-19T18:23:24Z",
       "created_at": "2026-09-19T15:04:46Z",
-      "run_id": 35459829177
+      "run_id": 35460675621
     }
   ]
 }
