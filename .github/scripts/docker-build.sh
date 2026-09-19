@@ -6,12 +6,16 @@ set -uo pipefail
 PKG="$1"; VER="$2"; PYV="${3:-}"
 
 # The container runs as a non-root user whose uid differs from the runner's,
-# so it cannot write into runner-owned bind-mount dirs (verified empirically:
-# /tmp and plain 755 mounts are unwritable from inside; only $HOME is).
-# World-writable so the container can write the toolchain tarball and the uv
-# cache; files land 644 and stay readable for the runner-owned cache save.
+# so runner-owned bind-mount content is unwritable from inside (verified:
+# /tmp unwritable; plain 755 dirs unwritable; and — run 35462492046 — files
+# RESTORED by actions/cache land runner-owned 644, so even in a 777 dir the
+# container could not overwrite state.txt: the stale 'miss' from the saved
+# snapshot then made the workflow delete a perfectly good cache entry).
+# chmod -R a+rwX (dir + every restored file) keeps both mounts writable;
+# container-created files stay world-readable for the runner-owned save.
 mkdir -p dist
-mkdir -p .uv-cache .prefix-cache && chmod 0777 .uv-cache .prefix-cache
+mkdir -p .uv-cache .prefix-cache
+chmod -R a+rwX .uv-cache .prefix-cache
 
 CID="twb-$(date +%s)"
 
