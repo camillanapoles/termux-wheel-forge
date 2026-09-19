@@ -2,13 +2,14 @@
 # termux-wheel — build & fetch Termux(Android)-compatible Python wheels.
 #
 #   termux-wheel <package> <version> [python-minor] [options]
+#   termux-wheel list|search|url|get …   (registry control plane)
 #
 # Triggers the build workflow on termux-wheel-forge (real Termux aarch64 via
 # QEMU on GitHub Actions), waits for it, and downloads the wheel. If a wheel
 # for that package/version was already built (GitHub Release), it is fetched
 # instantly with no rebuild.
 #
-# Requirements: gh (authenticated), python3.
+# Requirements: gh (authenticated, build flow only), python3, curl (registry).
 set -euo pipefail
 
 REPO="${TWB_REPO:-camillanapoles/termux-wheel-forge}"
@@ -28,9 +29,103 @@ do_install() {
     uv pip install --no-deps ${INSTALL_PYTHON:+--python "$INSTALL_PYTHON"} "$d"/*.whl
   else
     # shellcheck disable=SC2086
-    python3 -m pip install --no-deps --force-reinstall ${INSTALL_PYTHON:+--python "$INSTALL_PYTHON"} "$d"/*.whl
+    python3 -m pip ${INSTALL_PYTHON:+--python "$INSTALL_PYTHON"} install --no-deps --force-reinstall "$d"/*.whl
   fi
   bold "✓ installed"
+}
+
+# ---------- registry control plane (list/search/url/get) ----------
+REGISTRY_SRC=""
+
+REG_SNIPPET_TABLE='
+import json,sys
+doc=json.load(open(sys.argv[1],encoding="utf-8"))
+mode,pat=sys.argv[2],sys.argv[3]
+entries=doc.get("entries",[])
+if mode=="pkg": entries=[e for e in entries if e["pkg"]==pat]
+elif mode=="search":
+    t=pat.lower()
+    entries=[e for e in entries if t in e["pkg"].lower() or t in e["id"].lower()]
+if not entries:
+    print("(registry empty)" if not pat else "(no match for %s)"%pat)
+    raise SystemExit(0)
+cols=("id","py_requested","pkg","ver","built_at")
+rows=[[str(e.get(c,"")) for c in cols] for e in entries]
+w=[max([len(c)]+[len(r[i]) for r in rows]) for i,c in enumerate(cols)]
+f="  ".join("{{:{}}}".format(x) for x in w)
+print(f.format(*cols))
+for r in rows: print(f.format(*r))
+'
+
+REG_SNIPPET_URL='
+import json,sys
+doc=json.load(open(sys.argv[1],encoding="utf-8"))
+eid=sys.argv[2]
+e=next((x for x in doc.get("entries",[]) if x["id"]==eid),None)
+if e is None: raise SystemExit("error: id not found: "+eid)
+print(e["download_url"])
+'
+
+reg_py() {  # reg_py <snippet> [args…] — fetch registry, run embedded python on it
+  local snippet="$1"; shift
+  local tmp
+  tmp="$(mktemp)" || die "could not create temp file"
+  case "$REGISTRY_SRC" in
+    http://*|https://*) curl -fsSL "$REGISTRY_SRC" > "$tmp" \
+      || die "could not fetch registry: $REGISTRY_SRC" ;;
+    *) [ -r "$REGISTRY_SRC" ] || die "registry file not found: $REGISTRY_SRC"
+       cat "$REGISTRY_SRC" > "$tmp" ;;
+  esac
+  local rc=0
+  python3 -c "$snippet" "$tmp" "$@" || rc=$?
+  rm -f "$tmp"
+  return "$rc"
+}
+
+registry_get() {
+  local id="$1" install="$2" url fname dest
+  [ -n "$id" ] || die "get requires an ID"
+  url="$(reg_py "$REG_SNIPPET_URL" "$id")" || die "could not resolve $id"
+  fname="${url##*/}"
+  dest="$OUTDIR/$id"
+  mkdir -p "$dest"
+  bold "» downloading $fname"
+  curl -fsSL "$url" -o "$dest/$fname" || die "download failed: $url"
+  ls -la "$dest"
+  [ "$install" -eq 1 ] && do_install "$dest"
+  bold "✓ wheel ready: $dest/$fname"
+}
+
+registry_main() {
+  local cmd="$1"; shift
+  local arg="" pkg="" install=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --pkg)      pkg="${2:?}"; shift ;;
+      --registry) REGISTRY_SRC="${2:?}"; shift ;;
+      --repo)     REPO="${2:?}"; shift ;;
+      --install)  install=1 ;;
+      --python)   INSTALL_PYTHON="${2:?}"; shift ;;
+      -h|--help)  usage; exit 0 ;;
+      -*) die "unknown option: $1 (see --help)" ;;
+      *) if [ -z "$arg" ]; then arg="$1"; else die "too many arguments (see --help)"; fi ;;
+    esac
+    shift
+  done
+  command -v python3 >/dev/null || die "python3 not found"
+  command -v curl >/dev/null || die "curl not found (pkg install curl)"
+  if [ -z "$REGISTRY_SRC" ]; then
+    REGISTRY_SRC="${TWB_REGISTRY:-https://raw.githubusercontent.com/$REPO/main/registry.json}"
+  fi
+  case "$cmd" in
+    list)   if [ -n "$pkg" ]; then reg_py "$REG_SNIPPET_TABLE" pkg "$pkg"
+            else reg_py "$REG_SNIPPET_TABLE" all ""; fi ;;
+    search) [ -n "$arg" ] || die "search requires a TERM"
+            reg_py "$REG_SNIPPET_TABLE" search "$arg" ;;
+    url)    [ -n "$arg" ] || die "url requires an ID"
+            reg_py "$REG_SNIPPET_URL" "$arg" ;;
+    get)    registry_get "$arg" "$install" ;;
+  esac
 }
 
 usage() {
@@ -39,31 +134,52 @@ termux-wheel — Termux(Android)-compatible Python wheels, built on demand
 
 Usage:
   termux-wheel <package> <version> [python-minor] [options]
+  termux-wheel list [--pkg NAME]
+  termux-wheel search TERM
+  termux-wheel url <id>
+  termux-wheel get <id> [--install] [--python PATH]
 
-Args:
+Build args:
   package       PyPI package name            (required)
   version       package version              (required)
   python-minor  e.g. 3.14 — default: this machine's python
+
+Registry subcommands (reserved keywords: list, search, url, get):
+  list [--pkg NAME]         built wheels: id, python, pkg, ver, date
+  search TERM               substring search over id/pkg
+  url <id>                  print the download URL for a wheel id
+  get <id> [--install]      download into $TWB_OUTDIR/<id>/ (+install)
 
 Options:
   --install           install the wheel(s) after download (uses --no-deps)
   --python PATH       with --install: target interpreter/env (passed to
                       `uv pip install --python` or `pip install`)
   --repo OWNER/NAME   forge repo (default: $TWB_REPO or camillanapoles/termux-wheel-forge)
+  --registry SRC      registry file path or URL (default: $TWB_REGISTRY or
+                      raw.githubusercontent.com/<repo>/main/registry.json)
   --force             rebuild even if a release wheel already exists
   -h | --help         this help
 
 Examples:
   termux-wheel tree-sitter-rust 0.24.2
-  termux-wheel tree-sitter-python 0.25.0 3.14
   termux-wheel numpy 2.4.4 --install
-  # install into a uv tool environment (e.g. graphifyy):
-  termux-wheel tree-sitter-lua 0.5.0 --install \
-    --python ~/.local/share/uv/tools/graphifyy/bin/python
+  termux-wheel list --pkg tree-sitter-json
+  termux-wheel url py3.14-tree-sitter-json-0.24.8
+  termux-wheel get py3.14-tree-sitter-json-0.24.8 --install
 
-Env: TWB_REPO, TWB_OUTDIR
+Env: TWB_REPO, TWB_OUTDIR, TWB_REGISTRY
 EOF
 }
+
+# ---------- registry subcommand dispatch (reserved keywords) ----------
+case "${1:-}" in
+  list|search|url|get) MODE="$1"; shift ;;
+  *) MODE="" ;;
+esac
+if [ -n "$MODE" ]; then
+  registry_main "$MODE" "$@"
+  exit 0
+fi
 
 # ---------- args ----------
 PKG=""; VER=""
@@ -82,7 +198,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-[ -n "$PKG" ] && [ -n "$VER" ] || { usage >&2; die "package and version are required"; }
+if [ -z "$PKG" ] || [ -z "$VER" ]; then usage >&2; die "package and version are required"; fi
 
 command -v gh >/dev/null || die "gh CLI not found (pkg install gh)"
 command -v python3 >/dev/null || die "python3 not found"
@@ -93,17 +209,23 @@ DEST="$OUTDIR/$PKG-$VER-py$PYV"
 bold "termux-wheel → $PKG==$VER (python $PYV) @ $REPO"
 
 # ---------- fast path: existing release wheels ----------
-if [ "$FORCE" -eq 0 ] && gh release view "wheels/$PKG/$VER" -R "$REPO" >/dev/null 2>&1; then
-  N=$(gh release view "wheels/$PKG/$VER" -R "$REPO" --json assets -q '[.assets[].name | select(endswith(".whl"))] | length' 2>/dev/null || echo 0)
-  if [ "${N:-0}" -gt 0 ]; then
-    bold "» cached: found prebuilt wheel(s) in release wheels/$PKG/$VER (use --force to rebuild)"
-    mkdir -p "$DEST"
-    gh release download "wheels/$PKG/$VER" -R "$REPO" -D "$DEST" -p '*.whl' --clobber
-    ls -la "$DEST"
-    [ "$INSTALL" -eq 1 ] && do_install "$DEST"
-    bold "✓ done (no build needed): $DEST"
-    exit 0
+# New pipeline publishes under wheel/py<minor>/<pkg>/<ver>; wheels/<pkg>/<ver>
+# holds pre-migration builds — probe both before paying for a QEMU rebuild.
+REL=""
+for t in "wheel/py$PYV/$PKG/$VER" "wheels/$PKG/$VER"; do
+  if [ "$FORCE" -eq 0 ] && gh release view "$t" -R "$REPO" >/dev/null 2>&1; then
+    N=$(gh release view "$t" -R "$REPO" --json assets -q '[.assets[].name | select(endswith(".whl"))] | length' 2>/dev/null || echo 0)
+    [ "${N:-0}" -gt 0 ] && { REL="$t"; break; }
   fi
+done
+if [ -n "$REL" ]; then
+  bold "» cached: found prebuilt wheel(s) in release $REL (use --force to rebuild)"
+  mkdir -p "$DEST"
+  gh release download "$REL" -R "$REPO" -D "$DEST" -p '*.whl' --clobber
+  ls -la "$DEST"
+  [ "$INSTALL" -eq 1 ] && do_install "$DEST"
+  bold "✓ done (no build needed): $DEST"
+  exit 0
 fi
 
 # ---------- trigger workflow ----------

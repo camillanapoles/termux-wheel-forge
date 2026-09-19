@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck (every shell script)
+        run: |
+          shellcheck -x \
+            bin/termux-wheel \
+            scripts/build-in-termux.sh \
+            .github/scripts/docker-build.sh \
+            patches/known.sh
+
+      - name: python syntax (sdist_fixer.py, registry.py)
+        run: |
+          python3 -m py_compile scripts/sdist_fixer.py
+          python3 -m py_compile scripts/registry.py
+
+      - name: registry tests (pytest, offline)
+        run: |
+          python3 -m pip install -q --disable-pip-version-check pytest
+          python3 -m pytest tests/ -q
+
+      - name: actionlint (workflows)
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
+
+      - name: CLI arg handling (no gh/auth/network needed)
+        run: |
+          out="$(bash bin/termux-wheel --help)"
+          grep -q '^Usage:' <<<"$out"
+          if bash bin/termux-wheel >/dev/null 2>&1; then
+            echo "FAIL: missing args must exit non-zero" >&2
+            exit 1
+          fi
+          if bash bin/termux-wheel pkg 1.0 --bogus >/dev/null 2>&1; then
+            echo "FAIL: unknown option must exit non-zero" >&2
+            exit 1
+          fi
+          f=tests/fixtures/registry.json
+          bash bin/termux-wheel list --registry "$f" | grep -q 'py3.14-tree-sitter-json-0.24.8'
+          bash bin/termux-wheel list --pkg numpy --registry "$f" | grep -q 'py3.14-numpy-2.4.4'
+          bash bin/termux-wheel search JSON --registry "$f" | grep -q 'tree-sitter-json'
+          url="$(bash bin/termux-wheel url py3.14-tree-sitter-json-0.24.8 --registry "$f")"
+          grep -q '^https://github.com/' <<<"$url"
+          if bash bin/termux-wheel url py3.14-ghost-0.0.1 --registry "$f" >/dev/null 2>&1; then
+            echo "FAIL: unknown registry id must exit non-zero" >&2
+            exit 1
+          fi
+          echo "smoke ok"

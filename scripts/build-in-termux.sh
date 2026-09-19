@@ -33,16 +33,41 @@ pkg install -y "$PKGNAME" python-pip clang >/dev/null 2>&1 \
 PY="$(command -v python || command -v python3)"
 PYVER_ACTUAL="$("$PY" -V 2>&1)"
 echo "== python: $PYVER_ACTUAL"
+printf '%s\n' "${PYVER_ACTUAL#Python }" > "$DIST/py-actual.txt"
 [ -n "$PYV" ] && [ "$PYV" != "default" ] && \
   [[ "$PYVER_ACTUAL" != *" $PYV"* ]] && \
   echo "WARN: requested python $PYV but got $PYVER_ACTUAL (wheel tag follows the actual one)"
 
-"$PY" -m pip install -q --upgrade pip setuptools wheel build 2>&1 | tail -1 || true
+command -v curl >/dev/null 2>&1 || pkg install -y curl >/dev/null 2>&1 || true
+UV_BIN="$HOME/.local/bin/uv"
+if [ ! -x "$UV_BIN" ]; then
+  echo "== [1b/5] uv (musl static aarch64 — cached package layer)"
+  # musl build is fully static: runs on bionic. The gnu build would not.
+  if curl -fsSL "https://github.com/astral-sh/uv/releases/latest/download/uv-aarch64-unknown-linux-musl.tar.gz" \
+       -o /tmp/uv.tgz \
+     && tar -xzf /tmp/uv.tgz -C /tmp \
+     && mkdir -p "$(dirname "$UV_BIN")" \
+     && install -m 755 /tmp/uv-aarch64-unknown-linux-musl/uv "$UV_BIN"; then
+    rm -rf /tmp/uv.tgz /tmp/uv-aarch64-unknown-linux-musl
+  else
+    echo "WARN: uv fetch failed — falling back to pip"
+  fi
+fi
+if [ -x "$UV_BIN" ]; then
+  echo "== uv pip toolchain (cache: ${UV_CACHE_DIR:-unset})"
+  # --python pins Termux's own bionic interpreter; never `uv python`
+  # (uv-managed glibc/musl pythons do not run on Android).
+  "$UV_BIN" pip install -p "$PY" --upgrade pip setuptools wheel build \
+    || { echo "WARN: uv toolchain install failed — falling back to pip"; \
+         "$PY" -m pip install -q --upgrade pip setuptools wheel build 2>&1 | tail -1 || true; }
+else
+  "$PY" -m pip install -q --upgrade pip setuptools wheel build 2>&1 | tail -1 || true
+fi
 
 echo "== [2/5] download sdist"
 WORK="$HOME/work"
 rm -rf "$WORK"; mkdir -p "$WORK/sdists"
-cd "$WORK"
+cd "$WORK" || exit 1
 if ! "$PY" -m pip download --no-deps --no-binary :all: -d sdists "$PKG==$VER" >/dev/null 2>&1; then
   echo "ERROR: sdist download failed for $PKG==$VER"
   "$PY" -m pip download --no-deps -d sdists "$PKG==$VER" >/dev/null 2>&1 || true
@@ -52,7 +77,7 @@ if ! "$PY" -m pip download --no-deps --no-binary :all: -d sdists "$PKG==$VER" >/
   cp "$LOG" "$DIST/" 2>/dev/null || true
   exit 3
 fi
-SDIST="$(ls sdists/*.tar.gz 2>/dev/null | head -1 || true)"
+SDIST="$(find sdists -maxdepth 1 -type f -name '*.tar.gz' | sort | head -n 1 || true)"
 if [ -z "$SDIST" ]; then
   echo "ERROR: sdist is not a .tar.gz — unsupported packaging"
   cp "$LOG" "$DIST/" 2>/dev/null || true
@@ -63,14 +88,17 @@ ROOTD="$(tar tzf "$SDIST" | head -1 | sed 's|/.*||')"
 echo "== sdist root: $ROOTD"
 
 echo "== [3/5] known-issues advisories"
-PKG="$PKG" VER="$VER" bash /work/patches/known.sh 2>/dev/null || true
+( cd "$ROOTD" && PKG="$PKG" VER="$VER" bash /work/patches/known.sh ) 2>/dev/null || true
 
 echo "== [4/5] sdist fixer (Termux/Android auto-patches)"
 "$PY" /work/scripts/sdist_fixer.py --headers /work/patches/headers "$ROOTD" || true
 
 echo "== [5/5] building wheel"
-cd "$ROOTD"
-if "$PY" -m build --wheel --outdir "$DIST"; then
+# maturin (jiter/tiktoken) refuses to build without this; 24 matches the
+# android_24_arm64_v8a wheel tag Termux ships.
+export ANDROID_API_LEVEL="${ANDROID_API_LEVEL:-24}"
+cd "$ROOTD" || exit 1
+if "$PY" -m build --wheel --no-isolation --outdir "$DIST"; then
   RC=0
 else
   RC=$?
