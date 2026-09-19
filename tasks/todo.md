@@ -1,37 +1,19 @@
 # Task List: uv-accelerated builds, artifact store & wheel registry
 
-Source: `tasks/plan.md` · Specs: `SPEC.md` + `SPEC-{uv-build-pipeline,artifact-store,wheel-registry,registry-cli}.md`
+Source: `tasks/plan.md` · Specs: `SPEC.md` + 4 module specs · Loop: github-ops-cicd (PR #1 merged adfbe92)
 
-## Phase 1: Registry core
-- [x] Task 1: registry.py + tests + initial registry.json
-  - Acceptance: add/upsert/get/url/list/search per SPEC-wheel-registry; exit codes 0/1/2; pytest green offline
-  - Verify: `python3 -m pytest tests/ -q` → 13 passed; hand-run `list`/`url` against fixture
-  - Files: `scripts/registry.py`, `registry.json`, `tests/test_registry.py`
+## Status: TODAS AS TASKS EXECUTADAS — SC1–SC7 com evidência real
 
-## Phase 2: CLI control plane
-- [x] Task 2: termux-wheel list/url/get/search + fixture + ci smoke
-  - Acceptance: subcommands work via `--registry`/`TWB_REGISTRY`; legacy flow untouched; --help updated
-  - Verify: shellcheck clean; offline smoke vs fixture (list/--pkg/search/url/not-found/legacy exits)
-  - Files: `bin/termux-wheel`, `tests/fixtures/registry.json`, `.github/workflows/ci.yml`
+- [x] Task 1–4 (implementação + verificação local: pytest 13/13, shellcheck 0.11, YAML, smoke)
+- [x] Task 5 E2E:
+  - PR #1: 🔴 SC2015 → fix → 🟢 (lint ×2) → merged `adfbe92`
+  - dispatch #1 (35450396630, 312s): Release `wheel/py3.14/tree-sitter-json/0.24.8` ✓ · registry commit `3166d53` ✓ · cache cold miss + saved
+  - dispatch #2 (35450792009, 328s): `Cache hit for: uv-termux-v1-2026-W38` ✓ · build 302s vs 301s → **sem speedup material** (dominado por pkg bootstrap + compilação sob QEMU, fora do cache)
+  - registry idempotente ao vivo: re-run → 1 entrada, diff 2 linhas (`f67fc8e`)
+  - on-device (Termux real): `list` sem auth ✓ · `url` → URL canônica ✓ · `get` baixou ✓ · wheel zip válido ✓ · `pip install --no-deps --target` rc=0 ✓
 
-### Checkpoint A — DONE (local, 2026-09-18)
-- [x] pytest 13/13 + shellcheck clean + YAML parse + offline CLI smoke green
+## Follow-up (novo incremento, R1: precisa de critérios antes de branch)
 
-## Phase 3: Pipeline
-- [x] Task 3: uv musl + cache + --python inside termux-docker
-  - Acceptance: cache mount/UV_CACHE_DIR aligned; musl uv w/ pip fallback; no `uv python`
-  - Verify: shellcheck; bash -n; YAML parse; grep-guard (only a comment mentions `uv python`)
-  - Files: `.github/workflows/build-wheel.yml`, `.github/scripts/docker-build.sh`, `scripts/build-in-termux.sh`
-
-## Phase 4: Store + registration
-- [x] Task 4: publish to wheel/py<minor>/<pkg>/<ver> + registry commit loop
-  - Acceptance: create-or-reuse Release, --clobber; rebase→add→push ×3 with empty-commit-safe retry
-  - Verify: YAML parse; shellcheck of touched scripts; loop logic reviewed for retry-with-no-diff case
-  - Files: `.github/workflows/build-wheel.yml`, `scripts/build-in-termux.sh` (py-actual.txt)
-
-### Checkpoint B — DONE (local, 2026-09-18)
-- [x] Full lint suite green; E2E user-gated (needs push)
-
-## Phase 5: E2E (manual, after push)
-- [ ] Task 5: live dispatch tree-sitter-json 0.24.8 ×2 + on-device install via `termux-wheel url/get`
-  - Depends: push to origin/main (CI runs actionlint + all gates), then `gh workflow run`
+- [ ] Proposta: cache do bootstrap pkg/`$PREFIX` (tar do toolchain no actions/cache) —
+      alvo: os ~2–3 min de dpkg sob QEMU por run. Requer spec de invalidação
+      (stale toolchain vs builds). **Ask-first** (muda estratégia de build).
