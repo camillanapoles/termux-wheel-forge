@@ -8,10 +8,10 @@ PKG="$1"; VER="$2"; PYV="${3:-}"
 # The container runs as a non-root user whose uid differs from the runner's,
 # so it cannot write into runner-owned bind-mount dirs (verified empirically:
 # /tmp and plain 755 mounts are unwritable from inside; only $HOME is).
-# World-writable so the container can drop the toolchain tarball; files land
-# 644 and stay readable for the runner-owned actions/cache save.
-mkdir -p dist .uv-cache
-mkdir -p .prefix-cache && chmod 0777 .prefix-cache
+# World-writable so the container can write the toolchain tarball and the uv
+# cache; files land 644 and stay readable for the runner-owned cache save.
+mkdir -p dist
+mkdir -p .uv-cache .prefix-cache && chmod 0777 .uv-cache .prefix-cache
 
 CID="twb-$(date +%s)"
 

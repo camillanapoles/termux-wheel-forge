@@ -19,7 +19,7 @@ on:
 
 permissions:
   contents: write
-
+  actions: write
 concurrency:
   group: build-${{ inputs.package }}-${{ inputs.version }}
   cancel-in-progress: false
@@ -47,7 +47,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .uv-cache
-          key: uv-termux-v1-${{ steps.week.outputs.week }}
+          # v2: v1-2026-W38 was saved empty (uv never ran — the /tmp write
+          # bug) and an existing key can't be overwritten, hence the bump.
+          key: uv-termux-v2-${{ steps.week.outputs.week }}
 
       - name: Cache Termux toolchain prefix (pkg bootstrap checkpoint)
         uses: actions/cache@v4
@@ -58,10 +60,27 @@ jobs:
           # restore is verified in-container and falls back to a full
           # bootstrap on any failure (correctness over speed). Saved only on
           # primary-key miss (actions/cache default) — a HIT run never re-tars.
-          key: prefix-termux-v1-${{ steps.week.outputs.week }}
+          # v2: v1-2026-W38 was poisoned by an empty post-job save (before the
+          # mount-permissions fix); a fresh entry cannot overwrite an existing
+          # key, hence the bump.
+          key: prefix-termux-v2-${{ steps.week.outputs.week }}
 
       - name: Build wheel inside real Termux (aarch64)
         run: bash .github/scripts/docker-build.sh "$PKG" "$VER" "$PYV"
+
+      - name: Drop stale prefix cache entry (bootstrap ran despite restore)
+        # If the container bootstrapped (state=miss) while actions/cache had
+        # restored an entry (empty/poisoned), that immutable entry would block
+        # the post-job save for the rest of the week. Delete it so the fresh
+        # tarball uploads. Failure is non-fatal: weekly rollover self-heals.
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f .prefix-cache/state.txt ] && grep -q '^miss$' .prefix-cache/state.txt; then
+            gh cache delete "prefix-termux-v2-${{ steps.week.outputs.week }}" -R "$GITHUB_REPOSITORY" \
+              || echo "NOTE: gh cache delete failed — weekly rollover self-heals"
+          fi
 
       - name: Resolve python minor (empty input = distro default)
         if: success()

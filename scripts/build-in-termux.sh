@@ -75,11 +75,15 @@ prefix_cache_save() {
 echo "== [1/5] toolchain (prefix cache, else pkg bootstrap)"
 CACHE_T0="$(date +%s)"
 if prefix_cache_restore; then
+  mkdir -p "$CACHE_DIR"; printf 'hit\n' > "$CACHE_DIR/state.txt"
   echo "== prefix cache: HIT (restored in $(( $(date +%s) - CACHE_T0 ))s)"
 else
   if [ -e "$CACHE_TARBALL" ] || [ -e "$CACHE_MARKER" ]; then
     echo "== prefix cache: restore failed — full bootstrap (correctness over speed)"
   fi
+  # state.txt: host-visible hit/miss — the workflow drops a stale cache entry
+  # when a bootstrap ran despite a restore (empty/poisoned weekly entry).
+  mkdir -p "$CACHE_DIR"; printf 'miss\n' > "$CACHE_DIR/state.txt"
   echo "== prefix cache: MISS (bootstrapping + saving)"
   yes | pkg update -y >/dev/null 2>&1 || apt-get update -y || true
   # Termux root repo ships one main `python`; versioned packages exist for some minors.
@@ -98,24 +102,37 @@ else
   if [ ! -x "$UV_BIN" ]; then
     echo "== [1b/5] uv (musl static aarch64 — cached package layer)"
     # musl build is fully static: runs on bionic. The gnu build would not.
+    # Download into $HOME: the container user cannot write /tmp (curl used
+    # to die with error 23 "client returned ERROR on write" on /tmp/uv.tgz,
+    # so uv never installed and the uv cache stayed empty).
+    UVDL="$HOME/uv-download"; rm -rf "$UVDL"; mkdir -p "$UVDL"
     if curl -fsSL "https://github.com/astral-sh/uv/releases/latest/download/uv-aarch64-unknown-linux-musl.tar.gz" \
-         -o /tmp/uv.tgz \
-       && tar -xzf /tmp/uv.tgz -C /tmp \
+         -o "$UVDL/uv.tgz" \
+       && tar -xzf "$UVDL/uv.tgz" -C "$UVDL" \
        && mkdir -p "$(dirname "$UV_BIN")" \
-       && install -m 755 /tmp/uv-aarch64-unknown-linux-musl/uv "$UV_BIN"; then
-      rm -rf /tmp/uv.tgz /tmp/uv-aarch64-unknown-linux-musl
+       && install -m 755 "$UVDL/uv-aarch64-unknown-linux-musl/uv" "$UV_BIN"; then
+      rm -rf "$UVDL"
+    elif pkg install -y uv >/dev/null 2>&1 && command -v uv >/dev/null 2>&1; then
+      # Termux-native uv (bionic build). Unify on $UV_BIN for the callers.
+      mkdir -p "$(dirname "$UV_BIN")"
+      ln -sf "$(command -v uv)" "$UV_BIN" || true
+      echo "== uv: installed from the Termux root repo"
     else
+      rm -rf "$UVDL"
       echo "WARN: uv fetch failed — falling back to pip"
     fi
   fi
   PY_BOOT="$(command -v python || command -v python3)"
   if [ -x "$UV_BIN" ]; then
     echo "== uv pip toolchain (cache: ${UV_CACHE_DIR:-unset})"
+    echo "== uv: $("$UV_BIN" --version 2>&1 | head -1)"
     # --python pins Termux's own bionic interpreter; never `uv python`
     # (uv-managed glibc/musl pythons do not run on Android).
     "$UV_BIN" pip install -p "$PY_BOOT" --upgrade pip setuptools wheel build \
       || { echo "WARN: uv toolchain install failed — falling back to pip"; \
            "$PY_BOOT" -m pip install -q --upgrade pip setuptools wheel build 2>&1 | tail -1 || true; }
+    # post-install evidence: did the mounted uv cache actually populate?
+    du -sh "${UV_CACHE_DIR:-$HOME/.cache/uv}" 2>/dev/null || true
   else
     "$PY_BOOT" -m pip install -q --upgrade pip setuptools wheel build 2>&1 | tail -1 || true
   fi
