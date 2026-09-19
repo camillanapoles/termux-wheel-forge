@@ -44,6 +44,51 @@ Runner-native builds are forbidden: they emit glibc wheels that do not install o
 
 **Contract with artifact-store:** workflow step exit 0 ⇔ `dist/` contains ≥ 1 `*.whl`.
 
+## Prefix cache (toolchain bootstrap checkpoint) — added 2026-09-19
+
+The dpkg bootstrap (`pkg update` + `pkg install python python-pip clang`) under QEMU
+dominated the "Build wheel inside real Termux" step (302s baseline). The prefix cache
+replaces it on warm runs with a gzip tarball of the toolchain state.
+- **What is cached**: `$PREFIX` (`/data/data/com.termux/files/usr`, minus
+  `var/cache/apt` and `tmp`) + `$HOME/.local/bin/uv` + `$HOME/.cache/pip`, tarred
+  gzip (busybox-safe; no zstd) into host-mounted `.prefix-cache/` (222 MB measured).
+- **Restore**: if `marker.txt` + `termux-prefix.tar.gz` both exist (`format=v1` in the
+  marker), untar over `/` INSTEAD of the pkg bootstrap, then verify: `python -V`
+  (matching the requested minor when given), `clang` present, `uv` executable iff the
+  marker recorded `uv=yes`, and `import build, setuptools, wheel`. **Any** failure
+  falls back to the full bootstrap (correctness over speed). Log lines:
+  `== prefix cache: MISS (bootstrapping + saving)` / `== prefix cache: HIT (restored
+  in Xs)`.
+- **Save**: after a bootstrap, tar to `.tmp` then `mv` (no half-written tarball);
+  the marker is written LAST — marker+tarball present ⇔ complete save.
+  `state.txt` (`hit`|`miss`) is dropped in the same dir for the workflow.
+- **Workflow**: second `actions/cache` on `.prefix-cache`, key
+  `prefix-termux-v2-<ISO week>` (same rolling weekly cadence as the uv cache).
+  Saved only on primary-key miss + job success (actions/cache default): a HIT run
+  never re-tars.
+- **Self-heal** ("Drop stale prefix cache entry" step, needs `actions: write`): if
+  the container bootstrapped (`state.txt=miss`) despite a restore — an empty or
+  poisoned entry — `gh cache delete <key>` so the post-job can save the fresh
+  tarball. Entries are immutable per key; without this, a poisoned week stays cold
+  until rollover. Non-fatal on failure.
+- **Invalidation**: weekly key rollover (first run of an ISO week re-bootstraps) or
+  manual key-version bump (`-v2-` → `-v3-`); bump the marker `format=` only when the
+  tarball layout changes.
+- **Staleness tradeoff**: toolchain ≤ 7 days old; a stale cache cannot produce wrong
+  wheels — verification + fallback cover python-minor mismatch, corruption, and a
+  missing toolchain.
+- **Container permission model (hard-won)**: the container runs as a non-root user
+  whose uid ≠ the runner's. Only `$HOME` is writable in-container — not `/tmp`, not
+  plain 755 bind mounts, and not runner-owned 644 files restored by actions/cache
+  even inside a 777 dir. Therefore `docker-build.sh` does `chmod -R a+rwX` on
+  `.uv-cache` and `.prefix-cache` before `docker run`, and the uv musl tarball is
+  downloaded into `$HOME/uv-download` (never `/tmp`), with `pkg install uv` as a
+  middle fallback before the pip-toolchain fallback.
+
+Measured (2026-09-19, tree-sitter-json 0.24.8 py3.14): MISS run build step 393s
+(bootstrap + tar + upload), HIT run **148s** vs 302s baseline (**-51%**), restore
+itself 25s.
+
 ## Acceptance
 
 1. `actionlint` clean on the rewritten workflow.
