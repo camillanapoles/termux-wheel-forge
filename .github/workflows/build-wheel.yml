@@ -49,6 +49,17 @@ jobs:
           path: .uv-cache
           key: uv-termux-v1-${{ steps.week.outputs.week }}
 
+      - name: Cache Termux toolchain prefix (pkg bootstrap checkpoint)
+        uses: actions/cache@v4
+        with:
+          path: .prefix-cache
+          # Rolling weekly key, same cadence as the uv cache: first run of an
+          # ISO week re-bootstraps. Staleness tradeoff: toolchain ≤7 days old;
+          # restore is verified in-container and falls back to a full
+          # bootstrap on any failure (correctness over speed). Saved only on
+          # primary-key miss (actions/cache default) — a HIT run never re-tars.
+          key: prefix-termux-v1-${{ steps.week.outputs.week }}
+
       - name: Build wheel inside real Termux (aarch64)
         run: bash .github/scripts/docker-build.sh "$PKG" "$VER" "$PYV"
 

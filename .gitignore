@@ -2,3 +2,4 @@ termux-wheel-out/
 dist/
 *.log
 __pycache__/
+.prefix-cache/
