@@ -32,6 +32,9 @@ termux-wheel <package> <version> --install --python ~/.local/share/uv/tools/<too
 - If a Release wheel already exists it is downloaded instantly (`--force` to rebuild)
 - Wheels land in `./termux-wheel-out/…` tagged e.g. `cp39-abi3-android_24_arm64_v8a`
 - Install manually: `uv pip install --no-deps <wheel>` or `python -m pip install --no-deps <wheel>`
+- Registry query CLI: `termux-wheel list [--pkg NAME]` / `search TERM` /
+  `url <id>` / `get <id> [--install] [--python PATH]` over `registry.json`
+  (`--registry SRC` or `TWB_REGISTRY` overrides the source)
 
 ## Step 2 — if you must fix on-device (manual)
 

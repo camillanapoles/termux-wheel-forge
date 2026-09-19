@@ -64,6 +64,29 @@ Options: `--install` · `--python PATH` (target env for `--install`) ·
 Wheels land in `./termux-wheel-out/<pkg>-<ver>-py<minor>/` and are published
 to Releases under the tag `wheels/<pkg>/<ver>`.
 
+## Registry
+
+Every build is also registered in [`registry.json`](registry.json) — a versioned
+index (`schema_version: 1`) with one entry per built wheel and a unique id
+`py{py_requested}-{pkg}-{ver}` (e.g. `py3.14-tree-sitter-json-0.24.8`). The
+binaries themselves live in GitHub Releases under the tag
+`wheel/py<minor>/<pkg>/<ver>`; `registry.json` is the queryable index over them
+(fetched raw, no auth needed).
+
+`bin/termux-wheel` has four registry subcommands (`list`, `search`, `url`, `get`
+are reserved keywords; `--registry SRC` overrides the registry path or URL,
+default `$TWB_REGISTRY` or the repo's `registry.json` on `main`):
+
+```bash
+termux-wheel list --pkg tree-sitter-json            # entries: id, python, pkg, ver, date
+termux-wheel search json                            # substring search over id/pkg
+termux-wheel url py3.14-tree-sitter-json-0.24.8     # print the download URL
+termux-wheel get py3.14-tree-sitter-json-0.24.8 --install   # download into $TWB_OUTDIR/<id>/ (+install)
+```
+
+With `get`, `--install` installs the wheel after download (`--no-deps`); point it
+at another environment with `--python PATH`.
+
 ## What the auto-fixer handles
 
 | Problem (symptom) | Packages seen | Fix |
