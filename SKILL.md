@@ -28,7 +28,8 @@ termux-wheel <package> <version> --install --python ~/.local/share/uv/tools/<too
 
 - Repo: `camillanapoles/termux-wheel-forge` (override with `TWB_REPO`/`--repo`)
 - Triggers `build-wheel` (workflow_dispatch) → QEMU arm64 + `termux/termux-docker`
-  → `scripts/sdist_fixer.py` → wheel artifact + Release `wheels/<pkg>/<ver>`
+  → `scripts/sdist_fixer.py` → wheel artifact + Release `wheel/py<minor>/<pkg>/<ver>`
+  → registers the build in `registry.json`
 - If a Release wheel already exists it is downloaded instantly (`--force` to rebuild)
 - Wheels land in `./termux-wheel-out/…` tagged e.g. `cp39-abi3-android_24_arm64_v8a`
 - Install manually: `uv pip install --no-deps <wheel>` or `python -m pip install --no-deps <wheel>`

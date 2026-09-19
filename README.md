@@ -61,8 +61,9 @@ Options: `--install` · `--python PATH` (target env for `--install`) ·
 `--force` (rebuild even if a Release wheel exists) · `--repo OWNER/NAME`
 (default `camillanapoles/termux-wheel-forge`, or `$TWB_REPO`).
 
-Wheels land in `./termux-wheel-out/<pkg>-<ver>-py<minor>/` and are published
-to Releases under the tag `wheels/<pkg>/<ver>`.
+Wheels land in `./termux-wheel-out/<pkg>-<ver>-py<minor>/`; new builds publish to
+Releases under the tag `wheel/py<minor>/<pkg>/<ver>`. Legacy pre-migration builds
+live under `wheels/<pkg>/<ver>` — the CLI probes both tags before rebuilding.
 
 ## Registry
 
