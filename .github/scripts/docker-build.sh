@@ -5,11 +5,15 @@
 set -uo pipefail
 PKG="$1"; VER="$2"; PYV="${3:-}"
 
-mkdir -p dist
+mkdir -p dist .uv-cache
 CID="twb-$(date +%s)"
 
+# .uv-cache is the host-side uv cache, mounted at Termux's default cache dir.
+# Container (root) writes stay readable for the runner-owned cache save.
 docker run --platform linux/arm64 --name "$CID" \
   -v "$PWD:/work:ro" \
+  -v "$PWD/.uv-cache:/data/data/com.termux/files/home/.cache/uv" \
+  -e UV_CACHE_DIR=/data/data/com.termux/files/home/.cache/uv \
   termux/termux-docker:latest \
   bash /work/scripts/build-in-termux.sh "$PKG" "$VER" "$PYV" || BUILD_RC=$?
 

@@ -39,27 +39,84 @@ jobs:
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
+      - name: ISO week (rolling cache key)
+        id: week
+        run: echo "week=$(date +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache uv packages (warm-machine checkpoint)
+        uses: actions/cache@v4
+        with:
+          path: .uv-cache
+          key: uv-termux-v1-${{ steps.week.outputs.week }}
 
       - name: Build wheel inside real Termux (aarch64)
         run: bash .github/scripts/docker-build.sh "$PKG" "$VER" "$PYV"
 
-      - name: Publish wheels to GitHub Release (fast path for future installs)
+      - name: Resolve python minor (empty input = distro default)
+        if: success()
+        run: |
+          # The wheel tag follows the ACTUAL interpreter; when the dispatch left
+          # python_version empty, derive the minor from what the build used.
+          if [ -z "$PYV" ]; then
+            PYV="$(cut -d. -f1,2 dist/py-actual.txt 2>/dev/null || true)"
+            [ -n "$PYV" ] || { echo "FAIL: cannot determine python minor (dist/py-actual.txt missing)" >&2; exit 1; }
+            echo "PYV=$PYV" >> "$GITHUB_ENV"
+          fi
+
+      - name: Publish wheel to Release (wheel/py<minor>/<pkg>/<ver>)
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           shopt -s nullglob
           wheels=(dist/*.whl)
-          if [ ${#wheels[@]} -gt 0 ]; then
-            tag="wheels/$PKG/$VER"
-            if ! gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              gh release create "$tag" -R "$GITHUB_REPOSITORY" \
-                --title "$PKG $VER — Termux (Android) wheels" \
-                --notes "Auto-built in real Termux aarch64 (QEMU) by termux-wheel-forge. Python: ${PYV:-default}."
-            fi
-            gh release upload "$tag" -R "$GITHUB_REPOSITORY" dist/*.whl --clobber
-            echo "release: ${{ github.server_url }}/${GITHUB_REPOSITORY}/releases/tag/$tag"
+          if [ ${#wheels[@]} -eq 0 ]; then
+            echo "FAIL: build reported success but no wheels in dist/" >&2
+            exit 1
           fi
+          tag="wheel/py$PYV/$PKG/$VER"
+          if ! gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" -R "$GITHUB_REPOSITORY" \
+              --title "$PKG $VER — Termux (Android) wheels (python $PYV)" \
+              --notes "Auto-built in real Termux aarch64 (QEMU) by termux-wheel-forge. Python: $PYV."
+          fi
+          gh release upload "$tag" -R "$GITHUB_REPOSITORY" dist/*.whl --clobber
+          echo "release: ${{ github.server_url }}/${GITHUB_REPOSITORY}/releases/tag/$tag"
+
+      - name: Register wheel in registry.json (rebase-retry x3)
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          wheel="$(find dist -maxdepth 1 -type f -name '*.whl' | sort | head -n 1)"
+          url="${{ github.server_url }}/${GITHUB_REPOSITORY}/releases/download/wheel/py$PYV/$PKG/$VER/$(basename "$wheel")"
+          py_actual="$(cat dist/py-actual.txt 2>/dev/null || echo "$PYV")"
+          git config user.name "termux-wheel-forge-bot"
+          git config user.email "actions@github.com"
+          ok=0
+          for attempt in 1 2 3; do
+            git fetch origin main >/dev/null 2>&1 || true
+            git rebase origin/main >/dev/null 2>&1 || git rebase --abort >/dev/null 2>&1 || true
+            python3 scripts/registry.py add \
+              --pkg "$PKG" --ver "$VER" --py "$PYV" --py-actual "$py_actual" \
+              --wheel "$(basename "$wheel")" --url "$url" \
+              --layout "py$PYV/$PKG/$VER/" --run-id "$RUN_ID" || exit 2
+            git add registry.json
+            # add is idempotent: on retry there may be nothing new to commit,
+            # but an unpushed local commit from the previous attempt must still
+            # go out — so commit and push are independent steps.
+            git diff --cached --quiet || git commit -q -m "registry: add py$PYV-$PKG-$VER"
+            if git push origin HEAD:main; then
+              ok=1
+              break
+            fi
+            echo "registry push raced (attempt $attempt) — retrying"
+            sleep 5
+          done
+          [ "$ok" -eq 1 ] || { echo "FAIL: could not push registry.json after 3 attempts" >&2; exit 1; }
 
       - name: Upload artifact (wheel + build log)
         if: always()
