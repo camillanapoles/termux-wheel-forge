@@ -198,7 +198,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-[ -n "$PKG" ] && [ -n "$VER" ] || { usage >&2; die "package and version are required"; }
+if [ -z "$PKG" ] || [ -z "$VER" ]; then usage >&2; die "package and version are required"; fi
 
 command -v gh >/dev/null || die "gh CLI not found (pkg install gh)"
 command -v python3 >/dev/null || die "python3 not found"
