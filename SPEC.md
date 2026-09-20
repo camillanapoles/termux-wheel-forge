@@ -1,6 +1,8 @@
 # Spec: termux-wheel-forge — uv-accelerated builds, artifact store & wheel registry
 
-Status: **awaiting approval** · Map approved: 2026-09-18
+Status: **approved 2026-09-18 · shipped & verified in production** — QEMU builds,
+Releases, registry commits and live on-device install+parse verified through
+2026-09-20 (exactly what was verified: [Success Criteria](#success-criteria)).
 Decisions locked: storage=**Releases + registry.json in git** · format=**.whl as-is** ·
 CLI=**extend `termux-wheel`** · uv=**inside Termux container only**
 
@@ -167,21 +169,27 @@ minor is a **different id** — never overwrite across pythons.
   wheel; build with `uv python`-managed interpreters; overwrite a registry entry across
   different python minors.
 
-## Success Criteria
-
-1. `gh workflow run build-wheel.yml -f package=P -f version=V -f python_version=3.14` ends
-   with Release `wheel/py3.14/P/V` holding the .whl, and `registry.json` committed with
-   the new id.
-2. `termux-wheel url py3.14-P-V` prints the asset URL; downloading it and running
-   `pip install --no-deps <file>` succeeds on Termux.
-3. `termux-wheel list`, `list --pkg`, `search` work from-device with no auth (public raw
-   fetch of `registry.json`).
-4. Second build of the same package/version logs a uv cache hit and completes faster than
-   the first.
-5. Rebuilding the same (pkg, ver, py) never duplicates registry entries.
-6. `ci.yml` green: shellcheck, actionlint, py_compile, pytest, offline CLI smoke.
-7. Legacy flow unchanged: `termux-wheel P V` without subcommand still triggers, waits,
-   downloads (now additionally registered).
+1. ✅ Verified (2026-09-19/20): dispatches for tree-sitter-json 0.24.8 and
+   tree-sitter-scala 0.26.2 each ended with Release `wheel/py3.14/<pkg>/<ver>`
+   holding the .whl, and `registry.json` committed with the new id.
+2. ✅ Verified on-device (2026-09-20): `url` prints the asset URL; download +
+   `pip install --no-deps` rc=0; real parse of the installed grammar (root
+   `document`) in a live environment.
+3. ✅ Verified on-device (2026-09-20): `list`, `list --pkg`, `search` work with
+   `python3` + `curl` only — no `gh`, no auth (public raw fetch of `registry.json`).
+4. **Restated 2026-09-20** — the original wording assumed the uv content cache
+   delivers the speedup; measurement showed the uv-only cache is negligible
+   (1.05 MB: uv had never run before the /tmp write bug was fixed). The measured
+   warm speedup comes from the **prefix cache** (toolchain checkpoint): 302s
+   baseline → 148s warm (run 35463197195, −51%); a MISS under the current key
+   costs 393s (bootstrap + ~222 MB tar/upload). Verified as restated.
+5. ✅ Verified live: re-running the same coordinates leaves exactly one entry
+   (`created_at` preserved, `built_at`/`run_id` refreshed; 2-line diff).
+6. ✅ Verified: `ci.yml` green on every pushed branch through 2026-09-20
+   (shellcheck, actionlint, py_compile, pytest, offline CLI smoke).
+7. ✅ Verified: `termux-wheel P V` without a subcommand still triggers, waits,
+   downloads — now additionally registered (breadth run for tree-sitter-scala
+   exercised the new-layout + legacy tag probe).
 
 ## Open Questions
 

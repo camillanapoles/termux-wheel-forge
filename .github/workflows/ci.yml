@@ -59,4 +59,11 @@ jobs:
             echo "FAIL: unknown registry id must exit non-zero" >&2
             exit 1
           fi
+          # `get` offline: id resolution happens before any network call, so an
+          # unknown id must fail closed here. A full `get` download needs the
+          # Release asset — covered by E2E on-device runs, not this smoke.
+          if bash bin/termux-wheel get py3.14-ghost-0.0.1 --registry "$f" >/dev/null 2>&1; then
+            echo "FAIL: get with unknown id must exit non-zero" >&2
+            exit 1
+          fi
           echo "smoke ok"

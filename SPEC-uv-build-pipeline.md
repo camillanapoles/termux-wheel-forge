@@ -1,6 +1,6 @@
 # Module Spec: uv-build-pipeline
 
-Status: awaiting approval · Depends on: —
+Status: approved 2026-09-18 · shipped & verified (2026-09-20) · Depends on: —
 
 ## Objective
 

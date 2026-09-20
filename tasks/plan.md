@@ -47,13 +47,13 @@ parallelize. Task 4 merges them (publish + registry commit in the workflow).
 ## Task List
 
 ### Phase 1: Registry core (offline, TDD) — module `wheel-registry`
-- [ ] **Task 1: registry.py + tests + initial registry.json** (S, TDD)
+- [x] **Task 1: registry.py + tests + initial registry.json** (S, TDD) — done: pytest 13/13 offline; live idempotent re-run → 1 entry (see todo.md).
   Acceptance: spec'd commands/add-upsert/exit-codes; pytest green offline.
   Verify: `python3 -m pytest tests/ -q`; hand-run `list/url` on fixture.
   Files: `scripts/registry.py`, `registry.json`, `tests/test_registry.py`.
 
 ### Phase 2: CLI control plane — module `registry-cli`
-- [ ] **Task 2: termux-wheel subcommands + fixture + ci smoke** (M)
+- [x] **Task 2: termux-wheel subcommands + fixture + ci smoke** (M) — done: on-device `list`/`url`/`get` verified; offline smoke green in ci.yml.
   Acceptance: list/url/get/search with `--registry`/`TWB_REGISTRY`; reserved keywords;
   legacy flow untouched; --help updated.
   Verify: shellcheck; offline smoke vs `tests/fixtures/registry.json` locally and in ci.yml.
@@ -63,7 +63,7 @@ parallelize. Task 4 merges them (publish + registry commit in the workflow).
 green locally; no workflow changes required to pass.
 
 ### Phase 3: Pipeline — module `uv-build-pipeline`
-- [ ] **Task 3: uv musl + cache + --python inside termux-docker** (M)
+- [x] **Task 3: uv musl + cache + --python inside termux-docker** (M) — done; superseded in part by the prefix cache (todo.md increment 2): uv-only cache measured negligible (1.05 MB), warm speedup comes from the prefix cache.
   Acceptance: weekly-key `actions/cache` on `.uv-cache/` mounted at Termux cache dir;
   `UV_CACHE_DIR` set; musl uv fetch with pip fallback; every uv call uses `--python`;
   no `uv python`.
@@ -73,7 +73,7 @@ green locally; no workflow changes required to pass.
   `scripts/build-in-termux.sh`.
 
 ### Phase 4: Store + registration — module `artifact-store` (+ registry commit)
-- [ ] **Task 4: publish to `wheel/py<minor>/<pkg>/<ver>` + registry commit loop** (M)
+- [x] **Task 4: publish to `wheel/py<minor>/<pkg>/<ver>` + registry commit loop** (M) — done: Releases live for both dispatch-validated packages; registry committed on every successful main run.
   Acceptance: Release create-or-reuse + `--clobber` upload; then rebase→add→push ×3
   committing `registry.json`; artifact name unchanged; empty-dist still fails visibly.
   Verify: `actionlint`; shellcheck on embedded run-steps (extracted or inline review);
@@ -84,13 +84,13 @@ green locally; no workflow changes required to pass.
 dispatch (requires push — user-gated).
 
 ### Phase 5: E2E validation (manual, on-device + CI)
-- [ ] **Task 5: live dispatch + on-device consume** (S, manual)
+- [x] **Task 5: live dispatch + on-device consume** (S, manual) — done: dispatches 35450396630/35450792009 (json), 35527218210 (scala); on-device `url` → `pip install --no-deps` rc=0; live parse.
   Dispatch `tree-sitter-json 0.24.8` ×2; assert Release, registry commit, uv cache hit,
   `termux-wheel url <id>` → `pip install --no-deps` on device.
 
 ### Checkpoint: Complete
-- [ ] SPEC.md success criteria 1–7 all verified
-- [ ] ci.yml green on GitHub after push
+- [x] SPEC.md success criteria verified — criterion 4 restated 2026-09-20 (prefix cache, not uv cache, delivers the warm speedup); annotations in SPEC.md Success Criteria.
+- [x] ci.yml green on GitHub after push (runs through 35533973087, 2026-09-20).
 
 ## Risks and Mitigations
 

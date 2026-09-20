@@ -1,6 +1,6 @@
 # Module Spec: wheel-registry
 
-Status: awaiting approval · Depends on: artifact-store
+Status: approved 2026-09-18 · shipped & verified (2026-09-20) · Depends on: artifact-store
 
 ## Objective
 

@@ -143,3 +143,45 @@ branch, então `push HEAD:main` é rejeitado localmente; dispatches de main func
   failure) · Release publicado · prefix cache HIT (26s) · main intacta (nenhum commit do
   branch vazou). Dispatch de main pós-merge sem regressão (registry atualizado por
   commit automático; id no relatório do workstream).
+
+## Incremento 6 (2026-09-20): end-to-end gap assessment → docs coherence sweep
+
+Evidence-based gap assessment over the full user path (install → build →
+registry → consume). Verdicts:
+
+- **M1 live install + real parse ✓** — grammar wheel installed into a
+  uv-managed env via uv 0.12.17; real parse works: root `document`,
+  children `['object']`, language ABI 14. Re-verified on-device today: the
+  graphifyy env parses live (`tree_sitter` runtime 0.25.2 + grammar wheel).
+- **M2 fast path ✓** — `termux-wheel <pkg> <ver>` against existing Releases,
+  no dispatch: tree-sitter-scala via new-layout tag `wheel/py3.14/...` in
+  2.19s; tree-sitter-rust via legacy tag `wheels/...` in 2.97s.
+  (Re-confirmed today: both tag layouts resolve on the fast path.)
+- **M3 scope honesty = PR #15** (`docs/coherence-sweep`) — README
+  demonstrated-scope/auth/updating notes, SPEC status + Success Criteria
+  annotations (criterion 4 restated: prefix cache, not uv cache, delivers
+  the warm speedup), plan-of-record checkboxes reconciled, offline `get`
+  not-found smoke added to ci.yml + registry-cli acceptance reworded.
+
+Incidents fixed en route (PR #12 `66d0ede`, already merged):
+
+- **B1 — fake uv stub**: a leftover 4-byte `fake` uv stub at
+  `~/.local/bin/uv` shadowed the real uv; mere `command -v uv` passed, then
+  `do_install` died rc 127 under `set -euo pipefail` with no fallback —
+  wheel downloaded but never installed. Fix: probe functionality
+  (`uv --version`), capture the uv rc, fall back to
+  `python3 -m pip install --no-deps --force-reinstall`, reporting which path
+  ran. (Stub since removed from the device.)
+- **B2 — fast-path dest staleness**: `gh release download --clobber` only
+  refreshes wheels, so stale `build.log`/`py-actual.txt` from a previous
+  artifact download survived in the versioned output dir. Fix: clobber the
+  dir wholesale (`rm -rf "$DEST"`) like the build path.
+
+Prefix-cache guard wave (three-state restore classification + py minor
+fail-fast): **see Incremento 4 above (PR #13)** — not repeated here.
+Registry main-only decision: **see Incremento 5 above (PR #14)**.
+
+Also verified this wave: the installed `~/.local/bin/termux-wheel` can go
+stale silently (5.7 KB copy from 2026-09-02 predates the registry
+subcommands) → README now carries an explicit Updating note; the installed
+file itself was left untouched.
