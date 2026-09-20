@@ -24,14 +24,22 @@ die()   { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 do_install() {
   local d="$1"
   bold "» installing wheel(s) from $d (--no-deps)"
-  if command -v uv >/dev/null; then
+  # Probe functionality, not mere presence: a stale/broken `uv` on PATH
+  # (e.g. a leftover stub) would otherwise abort the whole CLI under
+  # `set -euo pipefail` with no fallback.
+  if command -v uv >/dev/null 2>&1 && uv --version >/dev/null 2>&1; then
+    local rc=0
     # shellcheck disable=SC2086
-    uv pip install --no-deps ${INSTALL_PYTHON:+--python "$INSTALL_PYTHON"} "$d"/*.whl
-  else
-    # shellcheck disable=SC2086
-    python3 -m pip ${INSTALL_PYTHON:+--python "$INSTALL_PYTHON"} install --no-deps --force-reinstall "$d"/*.whl
+    uv pip install --no-deps ${INSTALL_PYTHON:+--python "$INSTALL_PYTHON"} "$d"/*.whl || rc=$?
+    if [ "$rc" -eq 0 ]; then
+      bold "✓ installed (uv)"
+      return 0
+    fi
+    bold "! uv install failed (rc=$rc) — falling back to pip"
   fi
-  bold "✓ installed"
+  # shellcheck disable=SC2086
+  python3 -m pip ${INSTALL_PYTHON:+--python "$INSTALL_PYTHON"} install --no-deps --force-reinstall "$d"/*.whl
+  bold "✓ installed (pip)"
 }
 
 # ---------- registry control plane (list/search/url/get) ----------
@@ -220,7 +228,11 @@ for t in "wheel/py$PYV/$PKG/$VER" "wheels/$PKG/$VER"; do
 done
 if [ -n "$REL" ]; then
   bold "» cached: found prebuilt wheel(s) in release $REL (use --force to rebuild)"
-  mkdir -p "$DEST"
+  # `gh release download -p '*.whl' --clobber` only refreshes wheels, so
+  # stale non-wheel files from a previous artifact download (build.log,
+  # py-actual.txt) would survive — clobber the versioned output dir
+  # wholesale, like the build path below.
+  rm -rf "$DEST"; mkdir -p "$DEST"
   gh release download "$REL" -R "$REPO" -D "$DEST" -p '*.whl' --clobber
   ls -la "$DEST"
   [ "$INSTALL" -eq 1 ] && do_install "$DEST"
