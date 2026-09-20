@@ -23,9 +23,9 @@
       "wheel": "tree_sitter_scala-0.26.2-cp39-abi3-android_24_arm64_v8a.whl",
       "layout_path": "py3.14/tree-sitter-scala/0.26.2/",
       "download_url": "https://github.com/camillanapoles/termux-wheel-forge/releases/download/wheel/py3.14/tree-sitter-scala/0.26.2/tree_sitter_scala-0.26.2-cp39-abi3-android_24_arm64_v8a.whl",
-      "built_at": "2026-09-20T17:44:05Z",
+      "built_at": "2026-09-20T17:55:28Z",
       "created_at": "2026-09-20T17:44:05Z",
-      "run_id": 35526622254
+      "run_id": 35527218210
     }
   ]
 }
