@@ -41,7 +41,9 @@ prefix_cache_restore() {
   # marker + tarball must both exist and be non-empty; the saver writes the
   # marker last. A half-present/zero-byte pair (e.g. a poisoned entry) is
   # corrupt, not cold: actions/cache restored *something* unusable.
-  [ -s "$CACHE_MARKER" ] && [ -s "$CACHE_TARBALL" ] || { CACHE_MISS_REASON="miss-corrupt"; return 1; }
+  if [ ! -s "$CACHE_MARKER" ] || [ ! -s "$CACHE_TARBALL" ]; then
+    CACHE_MISS_REASON="miss-corrupt"; return 1
+  fi
   grep -q "^format=$CACHE_FORMAT$" "$CACHE_MARKER" 2>/dev/null || { CACHE_MISS_REASON="miss-corrupt"; return 1; }
   tar -xzf "$CACHE_TARBALL" -C / || { CACHE_MISS_REASON="miss-corrupt"; return 1; }
   local py pyver
