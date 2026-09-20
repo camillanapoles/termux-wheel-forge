@@ -264,8 +264,12 @@ if [ "$CONCLUSION" != "success" ]; then
   die "build $CONCLUSION — inspect logs: $RUN_URL (or: gh run view $RUN_ID -R $REPO --log-failed)"
 fi
 
-# ---------- download artifact ----------
 mkdir -p "$DEST"
+# gh run download has no --clobber: stale files from an earlier build (e.g.
+# prebuilt local wheels, a prior artifact's build.log) abort zip extraction
+# with "file exists". Mirror the fast path's `gh release download --clobber`
+# semantics by clearing stale artifact outputs first.
+rm -f "$DEST"/*.whl "$DEST"/*.log
 gh run download "$RUN_ID" -R "$REPO" -n "$ARTIFACT" -D "$DEST" || \
   die "could not download artifact $ARTIFACT (available names may differ if python_version was empty)"
 bold "» downloaded to $DEST"
