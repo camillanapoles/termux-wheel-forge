@@ -41,6 +41,15 @@ Runner-native builds are forbidden: they emit glibc wheels that do not install o
   6. `ANDROID_API_LEVEL=24` exported before build (already implemented 2026-09-18).
 - Concurrency group: `build-${{ inputs.package }}-${{ inputs.version }}` (unchanged).
 - Build log uploaded as actions artifact (`if: always()`).
+- **Registry writes are main-only** (added 2026-09-20): the "Register wheel in
+  registry.json" step no-ops with an explicit NOTE when `GITHUB_REF` is not
+  `refs/heads/main`. Rationale: from a branch tip, its `rebase origin/main` +
+  `push HEAD:main` would replay the branch's unreviewed commits straight into
+  main (a PR-loop bypass), and actions/checkout's depth-1 cut cannot prove
+  fast-forward for a branch tip anyway (the old code died there as a confusing
+  non-FF "could not push registry.json" failure). Branch dispatches still
+  publish the wheel to the Release; main dispatches run the exact original
+  code path (byte-for-byte unchanged behavior).
 
 **Contract with artifact-store:** workflow step exit 0 ⇔ `dist/` contains ≥ 1 `*.whl`.
 

@@ -120,3 +120,26 @@ Evidência (dispatches no branch, exercitando o código do fix):
   registry.json (clone shallow depth-1 corta ancestralidade → push HEAD:main rejeitado
   non-FF localmente; runs de main não afetados). Follow-up sugerido: unshallow no passo
   de registry.
+
+## Incremento 5 (2026-09-20): registry push main-only (dispatch de branch)
+
+Defect exposto pelo Incremento 4 (fora do escopo naquele): dispatch `--ref <branch>`
+morria no passo de registry com "FAIL: could not push registry.json after 3 attempts"
+(non-FF) — clone shallow depth-1 do actions/checkout corta a ancestralidade no tip do
+branch, então `push HEAD:main` é rejeitado localmente; dispatches de main funcionam.
+
+- **Decisão: opção (a) registry só de main** (PR do Incremento 5): habilitar o push de
+  branch (opção b, unshallow) seria um bypass de review — o passo faz
+  `rebase origin/main` + `push HEAD:main`, o que reproduziria os commits NÃO revisados
+  do branch direto no main. Registry é estado canônico de main; builds de branch são
+  evidência/experimento. O Release publish do branch permanece intacto.
+- `build-wheel.yml`: guarda no passo de registry — `GITHUB_REF != refs/heads/main` →
+  linha NOTE explícita + `exit 0` (substitui a falha confusa). Dispatches de main:
+  caminho de código original byte-a-byte (comportamento inalterado).
+- Espec: Interface ganha o bullet "Registry writes are main-only" com a racional.
+- Evidência: dispatch de branch **35534769209** (fix/registry-main-only @ a2aec8f) VERDE —
+  `NOTE: branch dispatch (refs/heads/fix/registry-main-only) — registry.json write is
+  main-only; skipped (Release publish unaffected)` · passo Register: success (antes:
+  failure) · Release publicado · prefix cache HIT (26s) · main intacta (nenhum commit do
+  branch vazou). Dispatch de main pós-merge sem regressão (registry atualizado por
+  commit automático; id no relatório do workstream).
