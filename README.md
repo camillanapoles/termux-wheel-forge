@@ -20,6 +20,13 @@ This repo fixes that:
    artifact **and** a permanent GitHub Release asset (so the second install of
    the same package is instant, no rebuild).
 
+**Demonstrated scope (verified 2026-09-20):** the class proven end to end —
+build in a real Termux aarch64 container (QEMU) → Release → registry →
+on-device install → real parse — is **tree-sitter grammar sdists**: C extensions
+whose known breakage `scripts/sdist_fixer.py` already handles, on Python 3.14.
+Other C-extension classes (numpy, maturin/meson/cargo-backed sdists) are **not**
+demonstrated yet — see [Limitations](#limitations).
+
 ```text
  your phone                GitHub Actions                      your phone
 ┌────────────┐   trigger  ┌──────────────────────────┐  wheel  ┌──────────────┐
@@ -40,6 +47,10 @@ curl -fsSL https://raw.githubusercontent.com/camillanapoles/termux-wheel-forge/m
 chmod +x ~/.local/bin/termux-wheel
 ```
 
+> **Updating:** the installed copy never auto-updates — after repo updates,
+> re-run the `curl` install line above. (A copy installed before the registry
+> shipped, e.g. 2026-09-02, lacks `list`/`search`/`url`/`get`.)
+
 ## Usage
 
 ```bash
@@ -50,7 +61,7 @@ termux-wheel tree-sitter-json 0.24.8
 termux-wheel tree-sitter-rust 0.24.2 3.14
 
 # also install it afterwards (uses --no-deps)
-termux-wheel numpy 2.4.4 --install
+termux-wheel tree-sitter-python 0.25.0 --install
 
 # install straight into a uv tool env (e.g. the graphifyy case study):
 termux-wheel tree-sitter-lua 0.5.0 --install \
@@ -88,6 +99,15 @@ termux-wheel get py3.14-tree-sitter-json-0.24.8 --install   # download into $TWB
 With `get`, `--install` installs the wheel after download (`--no-deps`); point it
 at another environment with `--python PATH`.
 
+Grammar wheels do **not** bundle the `tree-sitter` runtime, and installs use
+`--no-deps` — have `tree-sitter` installed in the target environment
+(`pip install tree-sitter`) or the import fails even though the wheel installed.
+
+**Auth:** the four registry subcommands (`list`, `search`, `url`, `get`) need
+only `python3` + `curl` — no `gh`, no login (public raw fetch + public Release
+asset). The build flow — `termux-wheel P V`, including the fast-path download
+of an existing Release — needs an authenticated `gh` (`gh auth login`).
+
 ## What the auto-fixer handles
 
 | Problem (symptom) | Packages seen | Fix |
@@ -95,7 +115,7 @@ at another environment with `--python PATH`.
 | sdist missing `src/tree_sitter/parser.h` (`fatal error: 'tree_sitter/parser.h' file not found`) | tree-sitter-json/cpp/java/ruby/julia/kotlin/… | vendor the header trio (`parser.h, alloc.h, array.h`), **ABI-matched** to the grammar generation (ABI 14 vs 15 have different `TSLanguage` layouts — mixing them corrupts the struct) |
 | sdist missing `src/scanner.c` (wheel builds, then `dlopen failed: cannot locate symbol …_external_scanner_create`) | tree-sitter-python / c-sharp / lua / powershell | fetch scanner from the grammar's GitHub repo (tag `v<version>`) |
 | sdist missing `common/scanner.h` (`fatal error: '../../common/scanner.h' file not found`) | tree-sitter-php / typescript | fetch the missing include from the GitHub repo |
-| bionic libc gaps (e.g. numpy ≥ 2.5 uses `cpow`, absent in Android) | numpy | advisories + known-good pins (`numpy<=2.4.4`) |
+| bionic libc gaps (e.g. numpy ≥ 2.5 uses `cpow`, absent in Android) | numpy | **advisory only** — [`patches/known.sh`](patches/known.sh) suggests the pin `numpy<=2.4.4`; no numpy build is demonstrated yet (see Limitations) |
 
 Advisories live in [`patches/known.sh`](patches/known.sh); add new cases there.
 The full methodology is documented for humans in
@@ -161,6 +181,12 @@ done
 - Runtime-only breakage (like the missing-scanner dlopen case) is fixed
   because the fixer knows the pattern; truly package-specific bugs need a
   patch in this repo — PRs welcome.
+- **Build backends demonstrated: setuptools only.** The container build runs
+  `python -m build --wheel --no-isolation` with only `pip setuptools wheel build`
+  installed. sdists needing maturin, meson, cargo or scikit-build fail on the
+  missing backend (`ANDROID_API_LEVEL=24` is already exported for a future
+  maturin path, but no maturin-backed build has been demonstrated). The numpy
+  entry above is likewise an advisory, not a working build.
 
 ## For AI agents
 

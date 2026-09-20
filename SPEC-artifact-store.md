@@ -1,6 +1,6 @@
 # Module Spec: artifact-store
 
-Status: awaiting approval · Depends on: uv-build-pipeline
+Status: approved 2026-09-18 · shipped & verified (2026-09-20) · Depends on: uv-build-pipeline
 
 ## Objective
 

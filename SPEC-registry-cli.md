@@ -1,6 +1,6 @@
 # Module Spec: registry-cli
 
-Status: awaiting approval · Depends on: wheel-registry
+Status: approved 2026-09-18 · shipped & verified (2026-09-20) · Depends on: wheel-registry
 
 ## Objective
 
@@ -31,9 +31,11 @@ as implemented.
 
 ## Acceptance
 
-1. Offline smoke in `ci.yml`: `list`, `list --pkg`, `search`, `url`, `get` against
-   `tests/fixtures/registry.json` via `--registry` — correct stdout, correct exit codes
-   (including not-found).
+1. Offline smoke in `ci.yml`: `list`, `list --pkg`, `search`, and `url` against
+   `tests/fixtures/registry.json` via `--registry` — correct stdout, exit codes, and
+   not-found → non-zero. `get` is covered offline for the not-found path only (id
+   resolution precedes any network call); a full `get` download needs the public
+   Release asset and is exercised by E2E on-device runs instead.
 2. Legacy paths intact: `termux-wheel P V` still reaches the trigger step;
    `termux-wheel` (no args) and `termux-wheel P V --bogus` still exit non-zero;
    `--help` documents the new subcommands.
