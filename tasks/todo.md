@@ -49,3 +49,37 @@ Design aprovado pelo main agent (design handed-down); spec: seção "Prefix cach
       gzip -1, ou excluir mais payload do tarball.
 - [ ] `WARN: package python-3.14 not available` apareceu no run A3 (default python
       é 3.14.6, tag igual) — investigar repos do Termux se voltar a importar.
+
+## Incremento 3 (2026-09-20): breadth — segundo pacote via CLI + fix de clobber no download
+
+Segundo pacote validado end-to-end pelo caminho do usuário (CLI
+`bin/termux-wheel`): **tree-sitter-scala 0.26.2, py3.14** (escolhido de
+`termux-wheel-out/`; release legada `wheels/tree-sitter-scala/0.26.2` existia,
+então `--force` para forçar build QEMU real em vez do fast path).
+
+- Bugs reais encontrados e corrigidos pelo caminho (com evidência de log):
+  1. `gh run download` não tem clobber (ao contrário do fast path
+     `gh release download --clobber`): run **35526622254** — build/publish/
+     registry OK no server, mas o download local morreu com
+     `error extracting zip archive: ... file exists` (wheel pré-existente do
+     trabalho manual) → **PR #9** `de597f7` (parcial: limpava `*.whl`/`*.log`)
+     → **PR #10** `0de45b6` (completo: `rm -rf "$DEST"`; o artefato `dist/*`
+     também carrega `py-actual.txt`, que a extração parcial do run falho
+     deixou para trás e o fix parcial não cobria)
+  - CI: 35527066008 ✓ · 35527181122 ✓ · prova e2e = re-dispatch (run B)
+- Medição (build step "Build wheel inside real Termux (aarch64)"):
+  - **#A 35526622254**: `== prefix cache: HIT (restored in 25s)` · build **197s**
+  - **#B 35527218210**: `== prefix cache: HIT (restored in 25s)` · build **198s**
+  - 197/198s vs 148s ontem (mesmo HIT/25s) = **variância observada do runner
+    sob QEMU (n=1 por lado), NÃO conclusão de regressão** — mesmo comportamento
+    de cache nos dois dias
+- Registry idempotente ao vivo: 2 entradas · json intocado (`created_at`
+  `2026-09-19T15:04:46Z`) · scala `created_at` preservado (2026-09-20T17:44:05Z),
+  `built_at`/`run_id` refreshed (17:55:28Z / 35527218210) ✓
+- Release `wheel/py3.14/tree-sitter-scala/0.26.2` ✓ (asset 489.918 B, re-upload
+  clobber no run B) · nota: `created_at` da release herda timestamp do tag
+  (tag órfã da sessão de ontem; json mostra o mesmo padrão)
+- on-device (Termux real): `list` 2 ids ✓ · `url` ✓ · wheel zip válido
+  (10 entradas, CRC ok) ✓ · `pip install --no-deps --target` **rc=0** ✓
+  (dist-info: METADATA/RECORD/WHEEL) — ambiente live intacto
+
