@@ -130,6 +130,17 @@ jobs:
           RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
+          # Registry writes are MAIN-ONLY. From a branch dispatch the rebase +
+          # push below would replay the branch's (unreviewed) commits straight
+          # into main — a PR-loop bypass — and the depth-1 checkout cannot
+          # prove fast-forward for a branch tip anyway (it used to die here as
+          # a confusing non-FF "could not push registry.json" failure). Branch
+          # builds keep the Release publish above untouched; main dispatches
+          # refresh the registry entry.
+          if [ "${GITHUB_REF:-}" != "refs/heads/main" ]; then
+            echo "NOTE: branch dispatch (${GITHUB_REF:-unset}) — registry.json write is main-only; skipped (Release publish unaffected)."
+            exit 0
+          fi
           wheel="$(find dist -maxdepth 1 -type f -name '*.whl' | sort | head -n 1)"
           url="${{ github.server_url }}/${GITHUB_REPOSITORY}/releases/download/wheel/py$PYV/$PKG/$VER/$(basename "$wheel")"
           py_actual="$(cat dist/py-actual.txt 2>/dev/null || echo "$PYV")"
