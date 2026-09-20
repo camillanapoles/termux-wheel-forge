@@ -83,3 +83,40 @@ então `--force` para forçar build QEMU real em vez do fast path).
   (10 entradas, CRC ok) ✓ · `pip install --no-deps --target` **rc=0** ✓
   (dist-info: METADATA/RECORD/WHEEL) — ambiente live intacto
 
+
+## Incremento 4 (2026-09-20): prefix-cache guard de 3 estados + fail-fast de minor
+
+Defect (diretor, lendo o workflow): o passo "Drop stale prefix cache entry" deletava a
+entrada semanal em QUALQUER `miss` — inclusive no cross-minor (dispatch py3.13 contra
+entrada 3.14), destruindo a entrada BOA da semana (~390s cold vs ~150s hit por run
+restante). PR **#13** `fix/prefix-cache-guard` (`447c9ec` feature + `0a3ee08` lint):
+
+1. `build-in-termux.sh`: `prefix_cache_restore` classifica cada recusa em
+   `CACHE_MISS_REASON` → `state.txt` ∈ {hit, miss-cold, miss-other-minor, miss-corrupt};
+   par meio-presente/0-byte = corrupt (não cold — actions/cache restaurou algo
+   inutilizável); default não-classificado = miss-corrupt (delete de chave fria é no-op,
+   entrada podre custa a semana toda).
+2. `build-wheel.yml`: self-heal dispara SÓ em `^miss-corrupt$` ancorado (comentário
+   documenta os 3 estados e por que miss-other-minor DEVE sobreviver).
+3. Fail-fast honesto (exit 9, sem fallback): minor solicitado insatisfatível → mensagem
+   acionável em vez de wheel cp314 registrado como py3.13 (metadada mentirosa é pior
+   que erro claro). Válvula após o bootstrap, ANTES do `prefix_cache_save` (evita re-tar
+   inútil de 223 MB); inalcançável em HIT (restore já recusa com miss-other-minor).
+   Espec: qualquer fallback futuro DEVE derivar o id do interpretador REAL.
+4. SPEC-uv-build-pipeline.md: self-heal em 3 estados + honesty gate + critério 6.
+
+Evidência (dispatches no branch, exercitando o código do fix):
+- **#1 35533973087** (py3.14): `Cache hit for: prefix-termux-v2-2026-W38` ·
+  `HIT (restored in 25s)` · state=hit · grep sem match · entrada sobreviveu
+  byte-idêntica (232.671.761 B, createdAt 2026-09-19T19:03:34Z) ✓ · wheel publicado ✓
+- **#2 35533979629** (py3.13): `prefix cache holds 'Python 3.14.6', requested 3.13` ·
+  `MISS/miss-other-minor` · pkg NÃO tem python-3.13 (WARN) · FAIL exit 9 com mensagem
+  acionável · publish/registry pulados · **entrada da semana NÃO deletada** ✓ (o código
+  antigo a teria deletado)
+- Caminho corrupto: **IMPROVÁVEL via dispatch** (entradas de cache são imutáveis — não
+  há como envenenar via gh); classificação coberta por harness local com a função real
+  (cold/other-minor/corrupt/half → 4 classificações corretas).
+- Artefato preexistente exposto (fora do escopo): dispatch de BRANCH não empurra
+  registry.json (clone shallow depth-1 corta ancestralidade → push HEAD:main rejeitado
+  non-FF localmente; runs de main não afetados). Follow-up sugerido: unshallow no passo
+  de registry.
