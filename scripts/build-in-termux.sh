@@ -28,25 +28,38 @@ CACHE_FORMAT="v1"
 UV_BIN="$HOME/.local/bin/uv"
 
 prefix_cache_restore() {
-  # marker + tarball must both exist; the saver writes the marker last.
-  [ -s "$CACHE_MARKER" ] && [ -s "$CACHE_TARBALL" ] || return 1
-  grep -q "^format=$CACHE_FORMAT$" "$CACHE_MARKER" 2>/dev/null || return 1
-  tar -xzf "$CACHE_TARBALL" -C / || return 1
+  # Every refusal sets CACHE_MISS_REASON so the caller can classify the miss
+  # for the workflow's self-heal step:
+  #   miss-cold        nothing cached at all — nothing to protect or delete
+  #   miss-other-minor entry healthy, holds a different python minor — the
+  #                    week's entry MUST survive (still valid for its minor)
+  #   miss-corrupt     entry present but failed extraction/verification —
+  #                    garbage; deleting it is correct
+  if [ ! -e "$CACHE_MARKER" ] && [ ! -e "$CACHE_TARBALL" ]; then
+    CACHE_MISS_REASON="miss-cold"; return 1
+  fi
+  # marker + tarball must both exist and be non-empty; the saver writes the
+  # marker last. A half-present/zero-byte pair (e.g. a poisoned entry) is
+  # corrupt, not cold: actions/cache restored *something* unusable.
+  [ -s "$CACHE_MARKER" ] && [ -s "$CACHE_TARBALL" ] || { CACHE_MISS_REASON="miss-corrupt"; return 1; }
+  grep -q "^format=$CACHE_FORMAT$" "$CACHE_MARKER" 2>/dev/null || { CACHE_MISS_REASON="miss-corrupt"; return 1; }
+  tar -xzf "$CACHE_TARBALL" -C / || { CACHE_MISS_REASON="miss-corrupt"; return 1; }
   local py pyver
-  py="$(command -v python || command -v python3)" || return 1
-  pyver="$("$py" -V 2>&1)" || return 1
+  py="$(command -v python || command -v python3)" || { CACHE_MISS_REASON="miss-corrupt"; return 1; }
+  pyver="$("$py" -V 2>&1)" || { CACHE_MISS_REASON="miss-corrupt"; return 1; }
   if [ -n "$PYV" ] && [ "$PYV" != "default" ]; then
     case "$pyver" in
       *" $PYV"*) ;;
-      *) echo "  prefix cache holds '$pyver', requested $PYV"; return 1 ;;
+      *) echo "  prefix cache holds '$pyver', requested $PYV — entry stays valid for its own minor"
+         CACHE_MISS_REASON="miss-other-minor"; return 1 ;;
     esac
   fi
-  command -v clang >/dev/null 2>&1 || return 1
+  command -v clang >/dev/null 2>&1 || { CACHE_MISS_REASON="miss-corrupt"; return 1; }
   if grep -q '^uv=yes$' "$CACHE_MARKER" 2>/dev/null; then
-    [ -x "$UV_BIN" ] || return 1
+    [ -x "$UV_BIN" ] || { CACHE_MISS_REASON="miss-corrupt"; return 1; }
   fi
   # the cached toolchain must be importable, not just present on disk
-  "$py" -c 'import build, setuptools, wheel' >/dev/null 2>&1 || return 1
+  "$py" -c 'import build, setuptools, wheel' >/dev/null 2>&1 || { CACHE_MISS_REASON="miss-corrupt"; return 1; }
 }
 
 prefix_cache_save() {
@@ -78,13 +91,20 @@ if prefix_cache_restore; then
   mkdir -p "$CACHE_DIR"; printf 'hit\n' > "$CACHE_DIR/state.txt"
   echo "== prefix cache: HIT (restored in $(( $(date +%s) - CACHE_T0 ))s)"
 else
-  if [ -e "$CACHE_TARBALL" ] || [ -e "$CACHE_MARKER" ]; then
-    echo "== prefix cache: restore failed — full bootstrap (correctness over speed)"
+  if [ -n "${CACHE_MISS_REASON:-}" ]; then
+    echo "== prefix cache: restore refused ($CACHE_MISS_REASON) — full bootstrap (correctness over speed)"
+    if [ "$CACHE_MISS_REASON" = "miss-other-minor" ]; then
+      echo "  note: the weekly entry stays valid for its own minor and will NOT be deleted;"
+      echo "        this run's fresh tarball cannot re-save under the same key this week (accepted)"
+    fi
   fi
-  # state.txt: host-visible hit/miss — the workflow drops a stale cache entry
-  # when a bootstrap ran despite a restore (empty/poisoned weekly entry).
-  mkdir -p "$CACHE_DIR"; printf 'miss\n' > "$CACHE_DIR/state.txt"
-  echo "== prefix cache: MISS (bootstrapping + saving)"
+  # state.txt: host-visible classified state — the workflow deletes the weekly
+  # entry ONLY on miss-corrupt (miss-cold has nothing to delete; a
+  # miss-other-minor entry is the week's good entry for its own minor).
+  # Unset reason defaults to miss-corrupt: a needless delete of a cold key is a
+  # no-op, but a surviving garbage entry costs every remaining run this week.
+  mkdir -p "$CACHE_DIR"; printf '%s\n' "${CACHE_MISS_REASON:-miss-corrupt}" > "$CACHE_DIR/state.txt"
+  echo "== prefix cache: MISS/${CACHE_MISS_REASON:-miss-corrupt} (bootstrapping + saving)"
   yes | pkg update -y >/dev/null 2>&1 || apt-get update -y || true
   # Termux root repo ships one main `python`; versioned packages exist for some minors.
   PKGNAME="python"
@@ -136,6 +156,21 @@ else
   else
     "$PY_BOOT" -m pip install -q --upgrade pip setuptools wheel build 2>&1 | tail -1 || true
   fi
+  # Python-minor honesty gate (fail fast): Termux ships ONE system python per
+  # prefix — if the requested minor could not be satisfied, building anyway
+  # would tag the wheel with the actual interpreter while the release/registry
+  # label says py$PYV. A mislabeled registry entry is worse than a clear error.
+  # (HIT runs can't reach this: restore already refuses a minor mismatch.)
+  PY_BOOT_V="$("$PY_BOOT" -V 2>&1)"
+  if [ -n "$PYV" ] && [ "$PYV" != "default" ] && [[ "$PY_BOOT_V" != *" $PYV"* ]]; then
+    echo "FAIL: requested python $PYV, but this Termux provides '$PY_BOOT_V'."
+    echo "      Termux ships a single system python (no side-by-side minors): the wheel"
+    echo "      would carry the ${PY_BOOT_V#Python } tag while the registry id says py$PYV."
+    echo "      Action: re-dispatch with python_version empty (distro default, currently"
+    echo "      $(cut -d. -f1,2 <<<"${PY_BOOT_V#Python }")) — or from a prefix that actually has $PYV."
+    cp "$LOG" "$DIST/" 2>/dev/null || true
+    exit 9
+  fi
   prefix_cache_save
 fi
 
@@ -143,9 +178,6 @@ PY="$(command -v python || command -v python3)"
 PYVER_ACTUAL="$("$PY" -V 2>&1)"
 echo "== python: $PYVER_ACTUAL"
 printf '%s\n' "${PYVER_ACTUAL#Python }" > "$DIST/py-actual.txt"
-[ -n "$PYV" ] && [ "$PYV" != "default" ] && \
-  [[ "$PYVER_ACTUAL" != *" $PYV"* ]] && \
-  echo "WARN: requested python $PYV but got $PYVER_ACTUAL (wheel tag follows the actual one)"
 
 echo "== [2/5] download sdist"
 WORK="$HOME/work"

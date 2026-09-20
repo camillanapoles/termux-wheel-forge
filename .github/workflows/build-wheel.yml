@@ -69,15 +69,24 @@ jobs:
         run: bash .github/scripts/docker-build.sh "$PKG" "$VER" "$PYV"
 
       - name: Drop stale prefix cache entry (bootstrap ran despite restore)
-        # If the container bootstrapped (state=miss) while actions/cache had
-        # restored an entry (empty/poisoned), that immutable entry would block
-        # the post-job save for the rest of the week. Delete it so the fresh
-        # tarball uploads. Failure is non-fatal: weekly rollover self-heals.
+        # state.txt is classified by the container (scripts/build-in-termux.sh):
+        #   miss-cold        nothing was cached — nothing to delete (deleting a
+        #                   non-existent key would be harmless but wrong).
+        #   miss-other-minor the entry is healthy but holds a different python
+        #                   minor than requested. It is still the week's good
+        #                   entry for its own minor and MUST survive: deleting it
+        #                   would force every remaining run this week to boot
+        #                   cold (~390s vs ~150s). The run that mismatched simply
+        #                   cannot re-save under the same key (accepted + logged).
+        #   miss-corrupt     entry present but failed extraction/verification —
+        #                   garbage; deleting lets the post-job save a fresh one.
+        # Delete ONLY on miss-corrupt (grep is anchored, so the other states
+        # never match). Failure is non-fatal: weekly rollover self-heals.
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -f .prefix-cache/state.txt ] && grep -q '^miss$' .prefix-cache/state.txt; then
+          if [ -f .prefix-cache/state.txt ] && grep -q '^miss-corrupt$' .prefix-cache/state.txt; then
             gh cache delete "prefix-termux-v2-${{ steps.week.outputs.week }}" -R "$GITHUB_REPOSITORY" \
               || echo "NOTE: gh cache delete failed — weekly rollover self-heals"
           fi
