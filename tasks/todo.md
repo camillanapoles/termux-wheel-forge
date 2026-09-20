@@ -137,5 +137,9 @@ branch, então `push HEAD:main` é rejeitado localmente; dispatches de main func
   linha NOTE explícita + `exit 0` (substitui a falha confusa). Dispatches de main:
   caminho de código original byte-a-byte (comportamento inalterado).
 - Espec: Interface ganha o bullet "Registry writes are main-only" com a racional.
-- Evidência: dispatch de branch verde com a linha NOTE (run id abaixo); dispatch de
-  main pós-merge sem regressão (registry atualizado por commit automático).
+- Evidência: dispatch de branch **35534769209** (fix/registry-main-only @ a2aec8f) VERDE —
+  `NOTE: branch dispatch (refs/heads/fix/registry-main-only) — registry.json write is
+  main-only; skipped (Release publish unaffected)` · passo Register: success (antes:
+  failure) · Release publicado · prefix cache HIT (26s) · main intacta (nenhum commit do
+  branch vazou). Dispatch de main pós-merge sem regressão (registry atualizado por
+  commit automático; id no relatório do workstream).
