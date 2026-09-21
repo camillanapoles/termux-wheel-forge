@@ -191,14 +191,22 @@ minor is a **different id** — never overwrite across pythons.
    downloads — now additionally registered (breadth run for tree-sitter-scala
    exercised the new-layout + legacy tag probe).
 
+## Resolved Decisions
+
+- **Registry write race** (two different packages finishing concurrently): resolved —
+  `git pull --rebase` + re-add + push with bounded retries is implemented in
+  `.github/workflows/build-wheel.yml`, step "Register wheel in registry.json
+  (rebase-retry x3)" (3 attempts). Proven in production: runs 35534431867 and
+  35535041400 pushed registry commits through it; the same-package re-run
+  35526622254 → 35527218210 exercised the retry path.
+- **Registry commits straight to `main` with `GITHUB_TOKEN`** vs registry PRs:
+  decided — direct commit to `main` is the shipped, proven behavior (same workflow
+  step; registry auto-commits c60cc3e, 3a02b93 and later are on `main`).
+
 ## Open Questions
 
-- Registry write race (two different packages finishing concurrently): plan is
-  `git pull --rebase` + re-add + push with bounded retries inside the workflow. Acceptable?
-- Auto-commit straight to `main` with `GITHUB_TOKEN` (current `contents: write`) vs
-  registry PRs. Default: direct commit. Flag if you want PRs.
-- Backfill of legacy `wheels/<pkg>/<ver>` releases into `registry.json`: deferred,
-  ask-first.
+- Backfill of legacy `wheels/<pkg>/<ver>` releases into `registry.json`: deferred —
+  pending user decision (ask-first).
 
 ## Module Specs
 
