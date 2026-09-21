@@ -185,3 +185,18 @@ Also verified this wave: the installed `~/.local/bin/termux-wheel` can go
 stale silently (5.7 KB copy from 2026-09-02 predates the registry
 subcommands) → README now carries an explicit Updating note; the installed
 file itself was left untouched.
+
+## Incremento 7 (2026-09-21): skill-seekers diagnosis — PyMuPDF wall; forge scope stays grammar-class
+
+- Consumer test `uv tool install skill-seekers` (3.9.1) on-device: deterministic ×3
+  failure at `pymupdf==1.28.2` → build-req `swig==4.5.0` (scikit-build-core) →
+  codeload.github.com fetch dies (TLS bad-record-mac over HTTP/2). PyMuPDF has
+  zero android wheels across all PyPI releases; the same resolve queues maturin
+  (pydantic-core, cryptography, tiktoken, orjson) + meson (numpy) behind the wall.
+- Forge dispatch **35550968054** (pymupdf 1.28.2 py3.14): W39 first-of-day prefix
+  MISS → bootstrap OK → hung 58 min in `[2/5] download sdist` (QEMU) → cancelled
+  per stuck rule; never reached the wheel step. No Release, no registry write
+  (registry unchanged: 2 entries).
+- README Limitations extended: three backend classes now named with evidence —
+  setuptools (demonstrated) vs scikit-build-core (blocked on-device, ×3) vs
+  maturin/meson (queued behind the wall, undemonstrated).

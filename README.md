@@ -24,8 +24,9 @@ This repo fixes that:
 build in a real Termux aarch64 container (QEMU) → Release → registry →
 on-device install → real parse — is **tree-sitter grammar sdists**: C extensions
 whose known breakage `scripts/sdist_fixer.py` already handles, on Python 3.14.
-Other C-extension classes (numpy, maturin/meson/cargo-backed sdists) are **not**
-demonstrated yet — see [Limitations](#limitations).
+Other C-extension classes (scikit-build-core, numpy/meson,
+maturin/cargo-backed sdists) are **not** demonstrated yet — see
+[Limitations](#limitations).
 
 ```text
  your phone                GitHub Actions                      your phone
@@ -187,6 +188,23 @@ done
   missing backend (`ANDROID_API_LEVEL=24` is already exported for a future
   maturin path, but no maturin-backed build has been demonstrated). The numpy
   entry above is likewise an advisory, not a working build.
+
+- **Non-setuptools backends: first verified consumer wall (2026-09-21).**
+  Installing a real non-grammar consumer (`skill-seekers` 3.9.1, which needs
+  `PyMuPDF>=1.24.14` — zero android wheels in any PyPI release) fails
+  deterministically on-device (uv 0.12.17, Python 3.14.6, reproduced ×3):
+  the `pymupdf` 1.28.2 sdist builds through `scikit_build_core.build`, and
+  its isolated build must first build `swig==4.5.0` — whose CMake
+  ExternalProject fetch from `codeload.github.com` dies on this network with
+  a TLS `bad record mac` over HTTP/2. The same resolve queues
+  maturin/Rust-backed (`pydantic-core`, `cryptography`, `tiktoken`,
+  `orjson`) and meson-backed (`numpy`) builds behind that wall — all still
+  undemonstrated. Forge dispatch **35550968054** (`pymupdf 1.28.2 py3.14`,
+  first-of-day prefix-cache MISS) was cancelled after sitting 58 min in
+  `[2/5] download sdist` with no log movement, before ever reaching the
+  wheel step — so the container-side boundary remains the documented
+  setuptools/wheel/build-only env (confirmed in that run's log), not a
+  captured backend failure.
 
 ## For AI agents
 
