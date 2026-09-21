@@ -175,6 +175,16 @@ else
   fi
   prefix_cache_save
 fi
+# TEMP diagnostic (miss-cost workstream): where does the cached payload live?
+# Removed in the final diff — measurement only.
+echo "== [diag] du: usr/* (sorted)"
+du -sh /data/data/com.termux/files/usr/* 2>/dev/null | sort -h
+echo "== [diag] du: usr/share/* (sorted)"
+du -sh /data/data/com.termux/files/usr/share/* 2>/dev/null | sort -h
+echo "== [diag] du: usr/lib/* (sorted, tail 20)"
+du -sh /data/data/com.termux/files/usr/lib/* 2>/dev/null | sort -h | tail -20
+echo "== [diag] du: usr/include/* (sorted, tail 10)"
+du -sh /data/data/com.termux/files/usr/include/* 2>/dev/null | sort -h | tail -10
 
 PY="$(command -v python || command -v python3)"
 PYVER_ACTUAL="$("$PY" -V 2>&1)"
